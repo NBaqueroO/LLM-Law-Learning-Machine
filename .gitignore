@@ -1,0 +1,41 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Modelo descargado (pesos, tokenizer, cache de Hugging Face)
+modelos/
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+
+# Cache de Hugging Face / transformers
+.cache/
+**/.cache/
+huggingface_hub/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*$py.class
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Variables de entorno / secretos
+.env
+*.env
+
+# Sistema / editor
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# OneDrive genera archivos temporales de sincronización
+*.tmp
+~$*

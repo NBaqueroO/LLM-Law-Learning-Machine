@@ -41,7 +41,7 @@ while True:
     outputs = model.generate(
         **inputs,
         max_new_tokens=300,
-        do_sample=False  # reemplaza a temperature=0.0, que generaba ese warning que viste al inicio
+        do_sample=False  # reemplaza a temperature=0.0 por requisito
     )
 
     respuesta = tokenizer.decode(

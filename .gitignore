@@ -39,3 +39,11 @@ Thumbs.db
 # OneDrive genera archivos temporales de sincronización
 *.tmp
 ~$*
+
+
+scripts/.env
+data/raw/*
+data/processed/*
+indices/*
+outputs/*.trazas.jsonl
+!**/.gitkeep

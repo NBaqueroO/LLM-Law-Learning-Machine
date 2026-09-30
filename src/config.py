@@ -11,7 +11,9 @@ OUTPUTS = RAIZ / "outputs"
 SCRIPTS = RAIZ / "scripts"
 SCHEMA = RAIZ / "schema" / "submission.schema.json"
 
-# TODO (Paso 1): MIN_OPCIONES_EN_TEXTO = 3   y   UMBRAL_CASO = 3
+
+MIN_OPCIONES_EN_TEXTO = 3   # "A) ... B) ... C) ..." consecutivas desde A
+UMBRAL_CASO = 3 
 
 # TODO (recuperación): TOP_K = 10, K_CANDIDATOS = 50, K_RERANK = 40, RRF_K = 60
 # TODO (evidencia):    UMBRAL_SCORE, PISO_ABSTENCION  (calibrar con sample_50)

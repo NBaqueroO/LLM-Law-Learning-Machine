@@ -176,8 +176,9 @@ for f in ["outputs/sample_50.jsonl", "outputs/sample_50.trazas.jsonl"]:
 | `CUPO_JURIS` | 0.3 | parte del top-10 para sentencias | 0.2 si las respuestas se llenan de sentencias y pierden la norma |
 | `K_CANDIDATOS` | 50 | candidatos por buscador | 100 es más lento y casi igual |
 | `RERANKER` | (vacío) | cross-encoder sobre los 40 primeros | `"BAAI/bge-reranker-v2-m3"`: en la medición de recuperación no mejoró (26/40 vs 27/40) y es 2× más lento |
-| `AREA_EN_CONSULTA` | 1 | suma los códigos del área a la 1.ª búsqueda | `"0"` para comparar (es nuevo, sin medir) |
+| `AREA_EN_CONSULTA` | 0 | suma los códigos del área a la 1.ª búsqueda | con "1" dio 47,75: bajaron cerradas (10/15) y juez (0,37); queda apagado |
 | `CITAR_RECUPERADAS` | 1 | cita también las normas del top-10 que el modelo no nombró | `"0"` para comparar (simulado: +1,5) |
+| `PROMPT_EVALUACION` | 0 | le explica al modelo cómo se califica (letra, juez experto, citas) | probar `"1"` después de la corrida "citar", una cosa a la vez |
 | `LLM_MAX_TOKENS` | 1200 | tope de la respuesta | subir solo si las abiertas salen cortadas |
 | `LLM_TIMEOUT` | 600 | segundos por llamada, incluida la cola | si aparecen "Request timed out", subirlo o bajar `PARALELO` |
 
@@ -222,7 +223,7 @@ Velocidad: 26 s por pregunta con 4 a la vez. Archivos: `entregas_grafo/20261001_
      simulado con el evaluador oficial sobre las mismas respuestas: citas 15,1 y abstención 7,91
      (**≈ 51,2/80**, falta confirmarlo corriendo).
    - **8 no se recuperaron** aunque están en el corpus (Estatuto del Consumidor, CGP, Ley 472, Ley 1581):
-     la búsqueda no usaba el área. → Arreglado con `AREA_EN_CONSULTA` (sin medir).
+     la búsqueda no usaba el área. → Se probó `AREA_EN_CONSULTA` y empeoró (47,75 con citar_area): queda apagado.
      Pueden faltar de verdad 3 sentencias recientes: C-468/2024, SU-016/2020, SU-277/2025 (revisar con
      `SELECT COUNT(*) FROM chunks WHERE doc_id='jurisprudencia_c_468_2024'`; si dan 0, bajarlas con
      `src/ingestion/bajar_sentencias.py` y reindexar el índice de sentencias).
@@ -241,7 +242,17 @@ Velocidad: 26 s por pregunta con 4 a la vez. Archivos: `entregas_grafo/20261001_
 ### Siguientes pasos, en orden
 1. Correr `sample` con el repo actual (`EXPERIMENTO = "citar_area"`) y confirmar el ≈51.
 2. Si alguno de los dos ajustes baja algo, apagarlo (`"0"`) y correr de nuevo para aislarlo.
-3. Revisar las 3 sentencias en `corpus.db` (consulta de arriba).
+3. Cobertura (ver `hackathon/corpus/cobertura/DIAGNOSTICO.md`): ninguna cerrada falla por falta de
+   corpus; solo faltarían sentencias recientes de la Corte, sobre todo SU (no hay barrido de SU). Para
+   revisarlo con la db de verdad y completar:
+   ```
+   python src/indexing/cobertura.py --db indices/corpus.db --preguntas data/sample_50.jsonl \
+       --index indices/index_sin_sentencias indices/index_juris --entrega outputs/sample_50.jsonl
+   cd src/ingestion && python bajar_sentencias.py --solo SU-16-2020 SU-277-2025 C-468-2024 && cd ../..
+   python src/indexing/indexar.py --db indices/corpus.db --solo-sentencias --out indices/index_juris --incremental
+   python -m src.indexing.build_index --solo-manifiesto
+   ```
+   `--incremental` embebe solo los fragmentos nuevos (no repite los 82 min del índice de sentencias).
 4. Calibrar reformular/abstención (`UMBRAL_SCORE`, `PISO_ABSTENCION`).
 5. Prompts: pedir que cite la norma además de la sentencia (`prompts.py`).
 

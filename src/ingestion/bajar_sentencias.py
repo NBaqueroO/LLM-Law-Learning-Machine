@@ -8,6 +8,7 @@ subdivide los pedazos largos en ventanas, para que cada chunk sea recuperable.
   python bajar_sentencias.py                 # todas las C/T/SU del seed, de mayor a menor peso
   python bajar_sentencias.py --limite 3      # prueba con las 3 de mas peso
   python bajar_sentencias.py --solo C-355-2006 T-760-2008
+  python bajar_sentencias.py --solo C-468-2024 SU-16-2020   # tambien las que no estan en el seed
 
 Las de la Corte Suprema (SC, SL, SP) no tienen URL fija: se pasan en un archivo de texto,
 una por linea "SL-3385-2022 https://....pdf" (PDF o HTML; agregar " forzar" al final si el PDF
@@ -19,7 +20,8 @@ Barrido (ampliar el corpus mas alla del seed): recorre C-1, C-2, C-3... de cada 
 reciente al mas viejo, hasta que --max-fallos numeros seguidos (150) no sean C o hasta
 --max-numero (1200). Resumible: lo ya revisado queda en la cache data/raw.
   python bajar_sentencias.py --barrer C --anios 2025-2000
-  python bajar_sentencias.py --barrer C SU --anios 2025-2015 --max-fallos 30
+  python bajar_sentencias.py --barrer SU --anios 2025-2015 --max-numero 700
+(C, T y SU comparten consecutivo: entre dos SU hay decenas de numeros, no bajar --max-fallos.)
 Las sentencias del barrido quedan con items_del_banco vacio; indexar.py --sin-sentencias-extra
 las deja fuera del indice (para medir con eval_recuperacion.py si ayudan o estorban).
 Resumible: salta las que ya quedaron ok. El HTML crudo queda en data/raw (cache).
@@ -209,7 +211,19 @@ def main():
     if a.solo:
         pedidas = {s.upper() for s in a.solo}
         sents = [e for e in sents if f"{e['canonico'][1]}-{e['canonico'][2]}".upper() in pedidas]
-    sents.sort(key=lambda e: -e["items_del_banco"])
+        # las que no estan en el seed (ej. las que lista cobertura.py) tambien se pueden pedir
+        en_seed = {f"{e['canonico'][1]}-{e['canonico'][2]}".upper() for e in sents}
+        for s in sorted(pedidas - en_seed):
+            m = re.fullmatch(r"(C|T|SU|A)-?0*(\d+)-(\d{4})", s)
+            if not m:
+                print(f"  {s}: formato no reconocido (usa C-468-2024, SU-16-2020)")
+                continue
+            tipo, num, anio = m.groups()
+            if f"{tipo}-{num}-{anio}" in en_seed:
+                continue
+            sents.append({"canonico": ["jurisprudencia", f"{tipo}-{num}", anio], "items_del_banco": None,
+                          "norma": f"Sentencia {tipo}-{num} de {anio}", "areas": ["Derecho constitucional"]})
+    sents.sort(key=lambda e: -(e["items_del_banco"] or 0))
     if a.limite:
         sents = sents[:a.limite]
     con = db.connect(out / "corpus.db")

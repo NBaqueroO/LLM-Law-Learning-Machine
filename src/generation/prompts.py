@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from src.config import MAX_CHARS_PASAJE
+from src.config import MAX_CHARS_PASAJE, PROMPT_EVALUACION
 from src.official import citations
 
 # ----------------------------------------------------------------------------------
@@ -41,6 +41,24 @@ tenlo en cuenta y dilo.
 "Es importante destacar que".
 7. Salida. Devuelve únicamente un objeto JSON válido con las claves indicadas en FORMATO, sin \
 texto antes ni después."""
+
+# Se suma a SISTEMA con PROMPT_EVALUACION=1: le dice al modelo qué revisa el calificador y cómo.
+EVALUACION = """
+
+# CÓMO SE CALIFICA TU RESPUESTA
+- Selección múltiple: solo cuenta la letra. Antes de elegir, compara cada opción palabra por \
+palabra con el texto de la norma en los pasajes; la opción correcta es la que coincide con la \
+norma, no la que suena más razonable. Los cambios pequeños (un plazo, un "siempre", un "solo", \
+quién decide) son la trampa usual.
+- Contenido: un abogado experto compara tu respuesta con la suya. Gana la respuesta que dice la \
+regla correcta y la conclusión que se pide, con el dato exacto (plazo, requisito, autoridad), \
+no la más larga.
+- Citas: se cuentan las normas y sentencias que escribes. Suma cada norma de los pasajes que \
+sustenta tu respuesta: el artículo de la Constitución, del código o de la ley, y no solo la \
+sentencia que lo interpreta. Citar algo que no aparece en los pasajes resta el doble."""
+
+if PROMPT_EVALUACION:
+    SISTEMA += EVALUACION
 
 # ----------------------------------------------------------------------------------
 # Cerradas (multiple_choice)

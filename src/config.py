@@ -52,6 +52,7 @@ K_CANDIDATOS = int(os.environ.get("K_CANDIDATOS", "50"))  # candidatos por busca
 K_RERANK = 40               # cuántos pasan por el reranker, si está prendido
 RRF_K = 60                  # constante de Reciprocal Rank Fusion
 CUPO_JURIS = float(os.environ.get("CUPO_JURIS", "0.3"))  # parte del top-10 para sentencias (la mitad si la pregunta es de jurisprudencia)
-AREA_EN_CONSULTA = os.environ.get("AREA_EN_CONSULTA", "1") == "1"    # la 1.ª búsqueda suma los códigos del área (sin filtrar)
+AREA_EN_CONSULTA = os.environ.get("AREA_EN_CONSULTA", "0") == "1"    # "1": la 1.ª búsqueda suma los códigos del área. Apagado: con él bajaron cerradas y juez (47,75)
 CITAR_RECUPERADAS = os.environ.get("CITAR_RECUPERADAS", "1") == "1"  # citar también las normas de los top-10 que el modelo no nombró
+PROMPT_EVALUACION = os.environ.get("PROMPT_EVALUACION", "0") == "1"  # "1": el prompt de sistema explica cómo se califica la respuesta
 K_FILTRO = 3000             # con filtro de cuerpos: candidatos que se miran antes de quedarse con los de esas normas

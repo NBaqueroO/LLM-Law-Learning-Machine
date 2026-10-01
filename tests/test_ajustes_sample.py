@@ -31,3 +31,17 @@ def test_el_area_entra_a_la_consulta_pero_no_a_los_cuerpos_esperados(monkeypatch
                         "pregunta": "¿Es abusiva esta cláusula de un contrato de seguro?"})
     assert r["consulta"].endswith("Estatuto del Consumidor Ley 1581 de 2012")
     assert r["cuerpos_esperados"] == []
+
+
+def test_prompt_evaluacion_se_suma_al_sistema(monkeypatch):
+    import importlib
+    import src.config
+    import src.generation.prompts as prompts
+    monkeypatch.setenv("PROMPT_EVALUACION", "1")
+    importlib.reload(src.config)
+    importlib.reload(prompts)
+    assert "# CÓMO SE CALIFICA TU RESPUESTA" in prompts.SISTEMA
+    monkeypatch.setenv("PROMPT_EVALUACION", "0")
+    importlib.reload(src.config)
+    importlib.reload(prompts)
+    assert "CÓMO SE CALIFICA" not in prompts.SISTEMA

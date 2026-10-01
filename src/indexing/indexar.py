@@ -17,6 +17,7 @@ Salida en indices/index/:
 
 Uso:
   python indexar.py --db indices/corpus.db --out indices/index                 # todo
+  python indexar.py --solo-sentencias --out indices/index_juris --incremental   # tras bajar sentencias nuevas
   python indexar.py --solo-bm25                                          # rapido, CPU
   python indexar.py --modelo intfloat/multilingual-e5-base --batch 32    # mas liviano
 En Kaggle/Colab: sube corpus.db, corre esto, y baja indices/index/. Si la sesion muere,
@@ -246,6 +247,42 @@ def construir_denso(textos, out, modelo, batch, shard, max_len, device):
     return ensamblar_faiss(out, n_sh)
 
 
+def denso_incremental(ids, textos, previos, out, modelo, batch, max_len, device):
+    """Reusa los vectores de los chunk_id que ya estaban y embebe solo los nuevos.
+    Supone que el texto de un chunk_id viejo no cambio (si se re-limpio el corpus, reindexar
+    completo, sin --incremental)."""
+    import faiss
+    ids_viejos, emb_viejos = previos
+    fila = {c: i for i, c in enumerate(ids_viejos)}
+    nuevos = [i for i, c in enumerate(ids) if c not in fila]
+    print(f"  {len(ids) - len(nuevos)} vectores reusados, {len(nuevos)} chunks nuevos para embeber")
+    emb = np.zeros((len(ids), emb_viejos.shape[1]), dtype=np.float32)
+    for i, c in enumerate(ids):
+        if c in fila:
+            emb[i] = emb_viejos[fila[c]]
+    if nuevos:
+        from sentence_transformers import SentenceTransformer
+        import torch
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        st = SentenceTransformer(modelo, device=device)
+        st.max_seq_length = max_len
+        if device == "cuda":
+            st.half()
+        pre = prefijo_pasaje(modelo)
+        v = st.encode([pre + textos[i] for i in nuevos], batch_size=batch, normalize_embeddings=True,
+                      show_progress_bar=True, convert_to_numpy=True).astype(np.float32)
+        if v.shape[1] != emb.shape[1]:
+            raise SystemExit(f"el indice viejo es de dimension {emb.shape[1]} y {modelo} da {v.shape[1]}: "
+                             "reindexa completo sin --incremental")
+        emb[nuevos] = v
+    index = faiss.IndexFlatIP(emb.shape[1])
+    index.add(emb)
+    faiss.write_index(index, os.path.join(out, "dense.faiss"))
+    print(f"FAISS listo: {index.ntotal} vectores de dimension {emb.shape[1]}")
+    return emb.shape[1]
+
+
 def ensamblar_faiss(out, n_sh):
     import faiss
     dir_sh = os.path.join(out, "emb_shards")
@@ -278,6 +315,8 @@ def main():
     p.add_argument("--nombre-codigo", action="store_true",
                    help="agrega el nombre del codigo a la cabecera: 'Ley 84 de 1873 (Código Civil)'")
     p.add_argument("--solo-bm25", action="store_true")
+    p.add_argument("--incremental", action="store_true",
+                   help="si corpus.db cambio, reusa los vectores de dense.faiss y embebe solo los chunks nuevos")
     p.add_argument("--solo-denso", action="store_true")
     p.add_argument("--con-duplicados", action="store_true",
                    help="no quitar normas/textos repetidos ni articulos de Decreto Unico dentro de leyes")
@@ -289,13 +328,28 @@ def main():
     ids = [f[0] for f in filas]
     textos = [f[1] for f in filas]
     ruta_ids = os.path.join(args.out, "chunk_ids.json")
+    ruta_faiss = os.path.join(args.out, "dense.faiss")
+    ruta_faiss_prev = os.path.join(args.out, "dense_previo.faiss")
+    ruta_ids_prev = os.path.join(args.out, "chunk_ids_previo.json")
     if os.path.exists(ruta_ids) and json.load(open(ruta_ids, encoding="utf-8")) != ids:
-        # los vectores viejos quedaron desalineados con los chunk_id: se borran y se rehacen
+        # los vectores viejos quedaron desalineados con los chunk_id: no se usan tal cual. Se
+        # guardan aparte (dense_previo.faiss) para que --incremental embeba solo los chunks nuevos
         import shutil
-        print("corpus.db cambio desde el ultimo indexado: se borran los vectores viejos y se reindexa")
+        print("corpus.db cambio desde el ultimo indexado: los vectores viejos pasan a dense_previo.faiss "
+              "(usa --incremental para reusarlos; si no, se reindexa todo)")
         shutil.rmtree(os.path.join(args.out, "emb_shards"), ignore_errors=True)
-        if os.path.exists(os.path.join(args.out, "dense.faiss")):
-            os.remove(os.path.join(args.out, "dense.faiss"))
+        if os.path.exists(ruta_faiss):
+            os.replace(ruta_faiss, ruta_faiss_prev)
+            shutil.copyfile(ruta_ids, ruta_ids_prev)
+    previos = None
+    if args.incremental and not args.solo_bm25 and os.path.exists(ruta_faiss_prev):
+        import faiss
+        viejo = faiss.read_index(ruta_faiss_prev)
+        ids_viejos = json.load(open(ruta_ids_prev, encoding="utf-8"))
+        if viejo.ntotal == len(ids_viejos):
+            previos = (ids_viejos, viejo.reconstruct_n(0, viejo.ntotal))
+            print(f"--incremental: {viejo.ntotal} vectores previos disponibles")
+        del viejo
     json.dump(ids, open(ruta_ids, "w", encoding="utf-8"))
     print(f"{len(ids)} chunks para indexar (descartados los de menos de {MIN_CHARS} caracteres, "
           f"y los de menos de {MIN_CHARS_SIN_ART} que no son un articulo)")
@@ -304,8 +358,13 @@ def main():
     if not args.solo_denso:
         construir_bm25(textos, args.out)
     if not args.solo_bm25:
-        dim = construir_denso(textos, args.out, args.modelo, args.batch, args.shard,
-                              args.max_len, args.device)
+        if previos:
+            dim = denso_incremental(ids, textos, previos, args.out, args.modelo, args.batch, args.max_len, args.device)
+            os.remove(ruta_faiss_prev)
+            os.remove(ruta_ids_prev)
+        else:
+            dim = construir_denso(textos, args.out, args.modelo, args.batch, args.shard,
+                                  args.max_len, args.device)
     json.dump({"modelo": args.modelo, "prefijo_pasaje": prefijo_pasaje(args.modelo),
                "dimension": dim, "n": len(ids), "min_chars": MIN_CHARS,
                "fecha": datetime.now(timezone.utc).isoformat(timespec="seconds")},

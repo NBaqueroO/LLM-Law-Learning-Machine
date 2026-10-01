@@ -8,25 +8,10 @@ beautifulsoup4
 sentence-transformers>=3.2
 faiss-cpu>=1.8
 rank-bm25>=0.2.2
-<<<<<<< HEAD
-bm25s
-=======
->>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a
 numpy>=1.26
 
 langgraph
 pydantic
 langchain-openai
 pytest
-<<<<<<< HEAD
-jsonschema
-
-# armar el corpus (src/corpus): descarga, PDF y OCR
-lxml
-pymupdf
-pytesseract
-pillow
-truststore
-=======
 # TODO (pasos siguientes): faiss-cpu, rank-bm25, sentence-transformers, jsonschema
->>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a

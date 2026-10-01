@@ -47,19 +47,3 @@ data/processed/*
 indices/*
 outputs/*.trazas.jsonl
 !**/.gitkeep
-<<<<<<< HEAD
-venv/
-__pycache__/
-*.pyc
-.env
-
-# Corpus e índices: van en el zip de Drive (ver README, sección "Corpus e índice"), no en git
-indices/
-outputs/
-*.db
-*.faiss
-*.zip
-*.log
-src/corpus/data/
-=======
->>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a

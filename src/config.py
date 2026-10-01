@@ -21,25 +21,11 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ol
 LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3:8b")                       # vLLM: Qwen/Qwen3-8B
 METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema
 LLM_MAX_TOKENS = 1200       # tope de tokens de salida por llamada
-<<<<<<< HEAD
-LLM_TIMEOUT = 120           # segundos
-=======
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "120"))   # segundos; súbelo si corres en CPU
->>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a
 MAX_CHARS_PASAJE = 1500     # recorte de cada pasaje dentro del prompt
 MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
 MAX_ORACIONES_SEMI = 5
 MAX_ORACIONES_ANALISIS = 8
 
-<<<<<<< HEAD
-# Recuperación (src/retrieval). Se descomprime el zip del corpus y se dejan en indices/:
-#   indices/corpus.db, indices/index_sin_sentencias/, indices/index_juris/
-CORPUS_DB = Path(os.environ.get("CORPUS_DB", INDICES / "corpus.db"))
-INDEX_NORMAS = Path(os.environ.get("INDEX_NORMAS", INDICES / "index_sin_sentencias"))
-INDEX_JURIS = Path(os.environ.get("INDEX_JURIS", INDICES / "index_juris"))
-TOP_K = 10                  # evaluate.py solo mira los 10 primeros pasajes para el respaldo de las citas
-# TODO (evidencia):    UMBRAL_SCORE, PISO_ABSTENCION  (calibrar con sample_50)
-=======
 # TODO (recuperación): TOP_K = 10, K_CANDIDATOS = 50, K_RERANK = 40, RRF_K = 60, ENCODER, RERANKER
 # TODO (evidencia):    UMBRAL_SCORE, PISO_ABSTENCION  (calibrar con sample_50)
->>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a

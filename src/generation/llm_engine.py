@@ -36,8 +36,7 @@ def _construir_cliente_base():
         temperature=0.0,
         max_tokens=LLM_MAX_TOKENS,
         timeout=LLM_TIMEOUT,
-        max_retries=1,
-        model_kwargs={"seed": 0},
+        max_retries=0,   # con temperatura 0, reintentar un timeout solo duplica la espera
         extra_body=config_extra,
     )
 

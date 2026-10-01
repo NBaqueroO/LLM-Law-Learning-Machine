@@ -73,7 +73,7 @@ def test_generate_mc(monkeypatch):
     monkeypatch.setattr(nodes, "generar", falso)
     out = nodes.generate_mc(estado("multiple_choice", "¿Qué pasa?", {"A": "Nulo", "B": "Inexistente"}))
     assert out["salida"]["respuesta_correcta"] == "A"
-    assert out["salida"]["descarte_opciones"] == {"B": "Confunde con inexistencia."}
+    assert out["salida"]["descarte_opciones"] == {"B": "Confunde con inexistencia."}  # A es la elegida
     assert out["usados"] == [1]                      # [2] -> índice 1; [99] no existe
     assert "artículo 899" in out["traza"]["razonamiento_mc"]
 
@@ -114,3 +114,38 @@ def test_fallo_del_llm_no_rompe_el_nodo(monkeypatch):
     monkeypatch.setattr(nodes, "generar", roto)
     out = nodes.generate_semi(estado("semi_open", "¿Cuál es el término?"))
     assert out["salida"] == {} and "JSON inválido" in out["traza"]["error_generacion"]
+
+
+# --- Limpieza del texto del modelo (casos reales de qwen3:1.7b) ---------------------------
+@pytest.mark.parametrize("entrada, esperado", [
+    ("Según el pasaje [2], el negocio jurídico es nulo absolutamente.", "El negocio jurídico es nulo absolutamente."),
+    ("El texto afirma 'nulo absolutamente', no 'anulable'}],\"", "El texto afirma 'nulo absolutamente', no 'anulable'"),
+    ("Como establecen los pasajes [1] y [3], procede la indemnización.", "Procede la indemnización."),
+    ("La regla (pasaje [2]) es clara", "La regla es clara."),
+])
+def test_limpiar(entrada, esperado):
+    assert nodes._limpiar(entrada) == esperado
+
+
+def test_mc_completa_descartes_faltantes(monkeypatch):
+    monkeypatch.setattr(nodes, "generar", lambda *a: SalidaMC(
+        razonamiento="", pasajes_usados=[1], respuesta_correcta="A", justificacion="Según el pasaje [1], es nulo.",
+        descarte_opciones=[DescarteOpcion(letra="B", motivo="No se menciona.")]))
+    out = nodes.generate_mc(estado("multiple_choice", "¿?", {"A": "1", "B": "2", "C": "3", "D": "4"}))
+    assert set(out["salida"]["descarte_opciones"]) == {"B", "C", "D"}
+    assert "pasaje" not in out["salida"]["justificacion"]
+
+
+def test_limpiar_quita_numeracion():
+    texto = "(1) El término es de diez días; (2) Artículo 391 del CGP lo establece; (3) Aplica al verbal sumario."
+    assert nodes._limpiar(texto) == ("El término es de diez días; Artículo 391 del CGP lo establece; "
+                                     "Aplica al verbal sumario.")
+
+
+def test_open_recorta_conclusion(monkeypatch):
+    larga = " ".join(f"Oración {i} de la conclusión." for i in range(6))
+    monkeypatch.setattr(nodes, "generar", lambda *a: SalidaOpen(
+        pasajes_usados=[1], marco_normativo="Norma.", analisis="Análisis.", jurisprudencia="Ninguna.",
+        conclusion=larga))
+    out = nodes.generate_open(estado("open_ended", "Pedro demandó. ¿Qué procede?"))
+    assert len(nodes._partir(out["salida"]["conclusion"])) <= 3

@@ -1,0 +1,18 @@
+# Sentencias de la Corte Suprema del seed: pega la URL (PDF o HTML) al lado de cada una.
+# Las que dejes sin URL se saltan. Luego: python bajar_sentencias.py --urls urls_csj.txt
+# Orden: de mayor a menor peso (SL-3385 vale 4 items; SL-648, SP-1680 y SP-1945 valen 2; el resto 1)
+SL-3385-2022 
+SL-648-2018 
+SP-1680-2022 
+SP-1945-2019 
+SC-1121-2018 
+SC-18392-2017 
+SC-3085-2024 
+SC-3674-2021 
+SC-425-2024 
+SC-8453-2016 
+SL-1050-2023 
+SL-1730-2020 
+SL-1972-2025 
+SP-1167-2022 
+SP-3218-2021 

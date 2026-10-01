@@ -8,4 +8,18 @@ beautifulsoup4
 sentence-transformers>=3.2
 faiss-cpu>=1.8
 rank-bm25>=0.2.2
+bm25s
 numpy>=1.26
+
+langgraph
+pydantic
+langchain-openai
+pytest
+jsonschema
+
+# armar el corpus (src/corpus): descarga, PDF y OCR
+lxml
+pymupdf
+pytesseract
+pillow
+truststore

@@ -1,9 +1,22 @@
 """Paso 4 - Rutas condicionales del grafo.
+
+Cada ruta es una función que lee el estado y devuelve el NOMBRE del siguiente nodo.
+No llaman al LLM: deciden con reglas, para que el resultado sea reproducible en la
+verificación en vivo.
+
+  ruta_evidencia (después de fuse_and_rerank):
+      evidencia crítica y sin reintento  -> reformulate
+      texto libre sin evidencia útil     -> force_abstain   (las cerradas nunca se abstienen)
+      en otro caso                       -> generate_mc | generate_semi | generate_open
+  ruta_campos (después de prune_and_verify_citations):
+      algún campo obligatorio vacío      -> fill_fields
+      en otro caso                       -> build_submission
 """
 from __future__ import annotations
 
-from src.config import PISO_ABSTENCION, TOP_K, UMBRAL_SCORE
+from src.config import TOP_K, UMBRAL_SCORE
 from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
+from src.guards.abstention_policy import sin_evidencia
 from src.official import citations
 
 GENERADOR = {"multiple_choice": "generate_mc", "semi_open": "generate_semi",
@@ -28,11 +41,6 @@ def score_critico(state: Estado) -> bool:
     if esperados and not (esperados & cuerpos_en(pasajes)):
         return True
     return state.get("score_max", 0.0) < UMBRAL_SCORE
-
-
-def sin_evidencia(state: Estado) -> bool:
-    """No hay nada útil en el corpus: ningún pasaje, o el mejor está bajo PISO_ABSTENCION."""
-    return not state.get("pasajes") or state.get("score_max", 0.0) < PISO_ABSTENCION
 
 
 def ruta_evidencia(state: Estado) -> str:

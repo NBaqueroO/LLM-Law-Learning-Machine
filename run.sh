@@ -43,7 +43,7 @@ echo "== 3. servidor del modelo ($SERVIDOR)"
 case "$SERVIDOR" in
   ollama)
     export LLM_MODELO="${LLM_MODELO:-qwen3:8b-q8_0}" LLM_BASE_URL="${LLM_BASE_URL:-http://localhost:11434/v1}"
-    command -v ollama >/dev/null || curl -fsSL https://ollama.com/install.sh | sh
+    command -v ollama >/dev/null || { command -v zstd >/dev/null || apt-get install -y -qq zstd; curl -fsSL https://ollama.com/install.sh | sh; }
     if ! curl -s localhost:11434/api/tags >/dev/null; then
       OLLAMA_CONTEXT_LENGTH=8192 OLLAMA_NUM_PARALLEL="$CONCURRENCIA" nohup ollama serve > outputs/ollama.log 2>&1 &
       until curl -s localhost:11434/api/tags >/dev/null; do sleep 1; done

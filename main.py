@@ -3,6 +3,7 @@
     python main.py --split sample                       # 50 preguntas -> outputs/sample_50.jsonl (+ evaluate.py)
     python main.py --split test --concurrencia 8        # 992 -> outputs/submissions.jsonl
     python main.py --entrada data/test_992.jsonl --ids 247,253   # verificación en vivo
+    python main.py --split sample --ids 1 --ruta        # por qué nodos pasa la pregunta 1, en orden
     python main.py --split sample --limite 5            # prueba rápida
     python main.py --split test --parte 1/2             # la mitad de las preguntas, para repartir en 2 GPU
     python main.py --split test --unir                  # junta las partes en outputs/submissions.jsonl
@@ -49,12 +50,29 @@ def unir(final: Path, items: list[dict]) -> int:
     return 1 if faltan else 0
 
 
+def imprimir_ruta(grafo, estado: dict) -> list[str]:
+    """Corre una pregunta nodo por nodo e imprime cada paso con lo que dejó en el estado."""
+    print(f"\n== pregunta {estado['id']} ({estado.get('formato')})")
+    ruta = []
+    for paso in grafo.stream(estado, stream_mode="updates"):
+        for nodo, cambios in paso.items():
+            ruta.append(nodo)
+            c = cambios or {}
+            resumen = {k: (len(v) if isinstance(v, list) else v) for k, v in c.items()
+                       if k in ("formato", "cuerpos_esperados", "lookup_hits", "bm25_hits", "dense_hits", "pasajes",
+                                "score_max", "retry", "filtro_cuerpos", "usados", "abstencion")}
+            print(f"  {len(ruta):>2}. {nodo:<28} {json.dumps(resumen, ensure_ascii=False, default=str)}")
+    print("  ruta:", " -> ".join(ruta))
+    return ruta
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--split", choices=list(ENTRADAS), default="sample")
     ap.add_argument("--entrada", type=Path, help="JSONL de preguntas (por defecto el del split)")
     ap.add_argument("--salida", type=Path, help="JSONL de respuestas (por defecto el del split)")
     ap.add_argument("--ids", help="solo estos id, separados por coma: imprime respuesta y traza, no escribe")
+    ap.add_argument("--ruta", action="store_true", help="con --ids: imprime los nodos que recorre cada pregunta")
     ap.add_argument("--limite", type=int, help="solo las primeras N preguntas")
     ap.add_argument("--parte", help="i/n: responde solo items[i-1::n] (para repartir en n GPU)")
     ap.add_argument("--unir", action="store_true", help="junta las partes en la salida final y termina")
@@ -74,7 +92,7 @@ def main(argv=None) -> int:
 
     from src.graph.workflow import construir_grafo
     from src.retrieval.resources import Recursos
-    from src.runner import correr_lote, responder
+    from src.runner import correr_lote, entrada as estado_inicial, responder
 
     t = time.time()
     recursos = Recursos.cargar(usar_denso=not args.sin_denso)
@@ -85,6 +103,9 @@ def main(argv=None) -> int:
     if args.ids:
         pedidos = {int(x) for x in args.ids.split(",") if x.strip()}
         for it in (it for it in items if it["id"] in pedidos):
+            if args.ruta:
+                imprimir_ruta(grafo, estado_inicial(it))
+                continue
             sub, traza = responder(grafo, it)
             print(json.dumps({"respuesta": sub, "traza": traza}, ensure_ascii=False, indent=1, default=str))
         return 0

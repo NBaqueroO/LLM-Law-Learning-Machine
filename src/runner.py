@@ -73,10 +73,16 @@ def correr_lote(grafo, items: list[dict], ruta_salida, max_concurrency: int = 4,
     salida.parent.mkdir(parents=True, exist_ok=True)
     if salida.exists():
         ordenar(salida)  # bota una línea cortada por un apagón antes de seguir agregando
-    hechos = {l.get("id") for l in _leer(salida)}
+    # las que fallaron (timeout, servidor caído) se vuelven a hacer; la línea nueva reemplaza a la vieja
+    ultimo = {t.get("id"): bool(t.get("error") or t.get("error_generacion")) for t in _leer(trazas)}
+    fallidas = {i for i, fallo in ultimo.items() if fallo}
+    if trazas.exists() and not trazas.read_bytes().endswith(b"\n"):
+        with open(trazas, "a", encoding="utf-8") as ft:  # que la próxima traza no se pegue a una cortada
+            ft.write("\n")
+    hechos = {l.get("id") for l in _leer(salida)} - fallidas
     pendientes = [it for it in items if it.get("id") not in hechos]
     if hechos:
-        log(f"ya estaban {len(hechos)}, faltan {len(pendientes)}")
+        log(f"ya estaban {len(hechos)}, faltan {len(pendientes)}" + (f" ({len(fallidas)} fallidas)" if fallidas else ""))
 
     t0 = time.time()
     if pendientes:

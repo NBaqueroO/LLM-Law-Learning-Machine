@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from src.config import MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, SCHEMA, TOP_K
+from src.config import AREA_EN_CONSULTA, CITAR_RECUPERADAS, MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, SCHEMA, TOP_K
 from src.generation import prompts
 from src.generation.llm_engine import generar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
@@ -80,6 +80,11 @@ def classify(state: Estado) -> Dict[str, Any]:
     citas_detectadas = citations.extract(consulta)
     cuerpos_esperados = sorted(citations.bodies(citas_detectadas), key=str)
     lookup_pasajes = _buscar_articulos_nombrados(citas_detectadas)
+    # El área viene en la pregunta: sus códigos probables entran a la búsqueda (no como filtro ni
+    # como cuerpos esperados). Sin esto, "cláusula abusiva" trae el Código de Comercio y no el
+    # Estatuto del Consumidor; antes solo pasaba al reformular, que casi nunca se activa.
+    if AREA_EN_CONSULTA and state.get("area"):
+        consulta = " ".join([consulta, *nodes_retrieval.CUERPOS_POR_AREA.get(state["area"], [])]).strip()
 
     return {
         "formato": formato,
@@ -301,7 +306,8 @@ def build_citations(state: Estado) -> Dict[str, Any]:
     if not salida:
         return {}
     return {"salida": citation_builder.construir_citas(
-        state["formato"], salida, state.get("pasajes") or [], state.get("usados") or [])}
+        state["formato"], salida, state.get("pasajes") or [], state.get("usados") or [],
+        citar_recuperadas=CITAR_RECUPERADAS)}
 
 
 def prune_and_verify_citations(state: Estado) -> Dict[str, Any]:

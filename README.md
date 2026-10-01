@@ -1,5 +1,7 @@
 # LLM Law Learning Machine
 
+**Para el equipo: [GUIA_EQUIPO.md](GUIA_EQUIPO.md)** (cómo correr todo, qué tocar, resultados).
+
 RAG legal colombiano: un grafo de LangGraph (`src/graph/`) clasifica la pregunta, recupera de un
 índice híbrido (BM25 + bge-m3, `src/retrieval/`), genera la respuesta con Qwen3-8B y verifica que
 cada cita esté en los pasajes (`src/guards/`).

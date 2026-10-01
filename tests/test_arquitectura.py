@@ -32,7 +32,7 @@ def test_el_grafo_es_el_diagrama():
 def test_ruta_de_una_pregunta(monkeypatch, capsys):
     """Una semiabierta con evidencia recorre el camino feliz del diagrama, en ese orden."""
     import main
-    from tests.test_runner import ITEMS, PASAJE, llm_falso   # el LLM y la recuperación falsos
+    from test_runner import ITEMS, PASAJE, llm_falso   # el LLM y la recuperación falsos (tests/ está en sys.path)
     from src.graph import nodes, nodes_retrieval
     from src.runner import entrada
     monkeypatch.setattr(nodes_retrieval, "bm25_search", lambda s: {"bm25_hits": []})

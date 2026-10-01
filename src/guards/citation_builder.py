@@ -34,10 +34,20 @@ def _faltantes(refs: list[str], texto_actual: str) -> list[str]:
     return [r for r in refs if not citations.bodies(citations.extract(r)) <= ya]
 
 
-def construir_citas(formato: str, salida: dict, pasajes: list[dict], usados: list[int]) -> dict:
-    """Devuelve una copia de `salida` con las citas escritas desde los pasajes usados."""
+def construir_citas(formato: str, salida: dict, pasajes: list[dict], usados: list[int],
+                    citar_recuperadas: bool = False) -> dict:
+    """Devuelve una copia de `salida` con las citas escritas desde los pasajes usados.
+
+    Con citar_recuperadas también entran las normas (no las sentencias) de los demás pasajes del
+    top-10 que el modelo no nombró: en sample_50 el modelo citaba la sentencia y dejaba por fuera
+    la Constitución o el código que sí estaba en los pasajes (7 de 15 citas perdidas).
+    """
     salida = dict(salida)
-    refs = _unicas([referencia(pasajes[i]) for i in usados if 0 <= i < len(pasajes)])
+    elegidos = [i for i in usados if 0 <= i < len(pasajes)]
+    if citar_recuperadas:
+        elegidos += [i for i in range(len(pasajes))
+                     if i not in elegidos and not es_sentencia(referencia(pasajes[i]))]
+    refs = _unicas([referencia(pasajes[i]) for i in elegidos])
     if not refs:
         return salida
 

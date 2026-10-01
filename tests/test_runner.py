@@ -73,7 +73,7 @@ def test_reanuda_sin_duplicar(grafo, tmp_path):
         return original(entradas, *a, **k)
     grafo.batch_as_completed = contar
     correr_lote(grafo, ITEMS, salida, log=lambda *a: None)
-    assert sorted(vistos) == [2, 4, 6]                      # 5, 1 y 3 ya estaban
+    assert sorted(vistos) == [2, 3, 4, 6]                   # 5 y 1 ya estaban; la 3 falló y se rehace
     assert [l["id"] for l in leer(salida)] == [1, 2, 3, 4, 5, 6]
 
 
@@ -116,3 +116,15 @@ def test_main_parte_y_unir(tmp_path):
             "".join(json.dumps({"id": x}) + "\n" for x in ids), encoding="utf-8")
     assert main.main(["--entrada", str(entrada), "--salida", str(final), "--unir"]) == 0
     assert [l["id"] for l in leer(final)] == [5, 1, 3, 2, 4, 6]   # el orden de la entrada
+
+
+def test_rehace_las_que_fallaron(grafo, tmp_path):
+    salida = tmp_path / "out.jsonl"
+    correr_lote(grafo, ITEMS, salida, log=lambda *a: None)          # la 3 falla (servidor caído)
+    nodes_generar = llm_falso
+    import src.graph.nodes as n
+    n.generar = lambda e, s, u: nodes_generar(e, s, u.replace("número 3", "número tres"))   # ya responde
+    correr_lote(grafo, ITEMS, salida, log=lambda *a: None)
+    lineas = {l["id"]: l for l in leer(salida)}
+    assert len(lineas) == 6 and lineas[3]["abstencion"] is False and lineas[3]["respuesta"] == "Son diez días."
+    assert len(leer(salida)) == 6                                    # sin repetidos

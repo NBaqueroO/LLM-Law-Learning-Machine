@@ -20,17 +20,17 @@ UMBRAL_CASO = 3
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ollama; vLLM: :8000/v1
 LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3:8b")                       # vLLM: Qwen/Qwen3-8B
 METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema
-LLM_MAX_TOKENS = 1200       # tope de tokens de salida por llamada
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "120"))   # segundos; súbelo si corres en CPU
-MAX_CHARS_PASAJE = 1500     # recorte de cada pasaje dentro del prompt
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1200"))  # tope de tokens de salida por llamada
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "600"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
+MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1500"))  # recorte de cada pasaje dentro del prompt
 MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
 MAX_ORACIONES_SEMI = 5
 MAX_ORACIONES_ANALISIS = 8
 
 
 TOP_K = 10                  # pasajes que cuentan como respaldo para el evaluador
-UMBRAL_SCORE = 0.30         # debajo de esto la evidencia es "crítica" -> un reintento
-PISO_ABSTENCION = 0.05      # debajo de esto, tras reintentar, el texto libre se abstiene
+UMBRAL_SCORE = float(os.environ.get("UMBRAL_SCORE", "0.30"))  # debajo de esto la evidencia es "crítica" -> un reintento
+PISO_ABSTENCION = float(os.environ.get("PISO_ABSTENCION", "0.05"))  # debajo de esto, tras reintentar, el texto libre se abstiene
 
 # Paso 3 - recuperación. El índice no es un servidor: son archivos en indices/ que
 # Recursos.cargar() (src/retrieval/resources.py) carga una vez al arrancar:
@@ -48,8 +48,10 @@ ENCODER = os.environ.get("ENCODER", "BAAI/bge-m3")          # el del índice ent
 RERANKER = os.environ.get("RERANKER", "")                    # "BAAI/bge-reranker-v2-m3" para prenderlo; vacío = sin reranker
 DISPOSITIVO = os.environ.get("DISPOSITIVO") or None          # None = GPU si hay; "cpu" si el LLM ocupa toda la GPU
 
-K_CANDIDATOS = 50           # candidatos por buscador (BM25 y denso) en cada índice
+K_CANDIDATOS = int(os.environ.get("K_CANDIDATOS", "50"))  # candidatos por buscador (BM25 y denso) en cada índice
 K_RERANK = 40               # cuántos pasan por el reranker, si está prendido
 RRF_K = 60                  # constante de Reciprocal Rank Fusion
-CUPO_JURIS = 0.3            # parte del top-10 para sentencias (la mitad si la pregunta es de jurisprudencia)
+CUPO_JURIS = float(os.environ.get("CUPO_JURIS", "0.3"))  # parte del top-10 para sentencias (la mitad si la pregunta es de jurisprudencia)
+AREA_EN_CONSULTA = os.environ.get("AREA_EN_CONSULTA", "1") == "1"    # la 1.ª búsqueda suma los códigos del área (sin filtrar)
+CITAR_RECUPERADAS = os.environ.get("CITAR_RECUPERADAS", "1") == "1"  # citar también las normas de los top-10 que el modelo no nombró
 K_FILTRO = 3000             # con filtro de cuerpos: candidatos que se miran antes de quedarse con los de esas normas

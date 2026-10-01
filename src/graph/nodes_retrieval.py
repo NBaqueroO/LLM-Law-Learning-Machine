@@ -93,13 +93,13 @@ def _con_cupo(rankings: dict, texto: str) -> list[tuple[str, float]]:
 
 
 def fuse_and_rerank(state: Estado) -> Dict[str, Any]:
-    """Top-K final. En selección múltiple las citas explícitas se buscan solo en el enunciado:
-    las opciones suelen nombrar normas que son distractores."""
+    """Top-K final. Las citas explícitas se buscan solo en el enunciado: las opciones de selección
+    múltiple suelen nombrar normas que son distractores, y la consulta trae los códigos del área."""
     lookup = [dict(p, score=1.0) for p in (state.get("lookup_hits") or [])]
     hallados, n_listas = [], 1
     if RECURSOS is not None:
         consulta = _consulta(state)
-        texto_citas = state["pregunta"] if state.get("formato") == "multiple_choice" else consulta
+        texto_citas = state["pregunta"]   # las citas explícitas salen del enunciado, no de lo que se le sumó
         hits = list(state.get("bm25_hits") or []) + list(state.get("dense_hits") or [])
         rankings = {nombre: _ranking(nombre, hits, texto_citas, consulta) for nombre in RECURSOS.indices}
         hallados = RECURSOS.pasajes(_con_cupo(rankings, texto_citas))

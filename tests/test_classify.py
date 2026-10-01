@@ -46,7 +46,11 @@ def test_formato_del_json_manda():
 def test_interfaz_solo_texto_cerrada():
     salida = classify({"pregunta": CERRADA_TEXTO})
     assert salida["formato"] == "multiple_choice"
+<<<<<<< HEAD
     assert salida["traza"]["formato_origen"] == "detector"
+=======
+    assert salida["traza"]["formato_origen"] == "detectado"
+>>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a
     assert set(salida["opciones"]) == {"A", "B", "C", "D"}
     assert "A)" not in salida["pregunta"]          # el enunciado queda sin las opciones
     assert "Es nulo absolutamente" in salida["consulta"]

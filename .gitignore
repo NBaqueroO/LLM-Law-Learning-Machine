@@ -47,6 +47,7 @@ data/processed/*
 indices/*
 outputs/*.trazas.jsonl
 !**/.gitkeep
+<<<<<<< HEAD
 venv/
 __pycache__/
 *.pyc
@@ -60,3 +61,5 @@ outputs/
 *.zip
 *.log
 src/corpus/data/
+=======
+>>>>>>> c4df8e2d7d6efffdcb801377e1f41b47598a2b3a

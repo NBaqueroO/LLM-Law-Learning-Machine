@@ -5,9 +5,10 @@ parciales que deben actualizar el grafo.
 
 Paso 1: classify
 Paso 2: generate_mc, generate_semi, generate_open
-TODO: bm25_search, vector_search, fuse_and_rerank, reformulate,
-      force_abstain, build_citations, prune_and_verify_citations,
-      fill_fields, build_submission.
+Paso 4: reformulate, force_abstain, build_submission (y los espacios del Paso 5)
+Paso 3 (otra persona): bm25_search, vector_search, fuse_and_rerank y reformular
+        viven en nodes_retrieval.py.
+TODO (Paso 5): build_citations, prune_and_verify_citations, fill_fields.
 """
 
 from __future__ import annotations
@@ -16,11 +17,12 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from src.config import MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI
+from src.config import MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, TOP_K
 from src.generation import prompts
 from src.generation.llm_engine import generar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
-from src.graph.state import Estado
+from src.graph import nodes_retrieval
+from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
 from src.official import citations
 from src.query.classifier import FORMATOS, detectar_formato, extraer_opciones
 
@@ -41,9 +43,6 @@ NUMERACION = re.compile(r"(?:^|(?<=[.;:]\s))\(?\d{1,2}\)\s*")
 BASURA_FINAL = re.compile(r"""\s*[}\]][\s'"\]\[}{,]*$""")
 
 
-# ==================================================================================
-# Paso 1: Clasificación e Inferencia Estructural
-# ==================================================================================
 
 def _buscar_articulos_nombrados(citas: list[Tuple]) -> List[Dict[str, Any]]:
     """Recupera directamente del índice los artículos citados explícitamente."""
@@ -120,9 +119,7 @@ def _partir(texto: str) -> List[str]:
 
 
 def _limpiar(texto: str, punto: bool = True) -> str:
-    """Quita referencias a pasajes y restos de JSON; arregla espacios, mayúscula
-    inicial y punto final. El juez de RAGAS lee este texto, así que no debe
-    hablar de "pasajes"."""
+    """Quita referencias a pasajes y restos de JSON."""
     t = REF_PASAJE.sub("", texto or "")
     t = NUMERACION.sub("", t)
     t = BASURA_FINAL.sub("", t)
@@ -173,8 +170,7 @@ def _ejecutar_generacion(
     esquema: Type[Any],
     prompt_usuario: str,
 ) -> Tuple[Optional[Any], Optional[str]]:
-    """Invocación protegida al motor de inferencia estructurada.
-    Devuelve (resultado, None) o (None, error real) para dejarlo en la traza."""
+    """Invocación protegida al motor de inferencia estructurada."""
     try:
         return generar(esquema, prompts.SISTEMA, prompt_usuario), None
     except Exception as exc:
@@ -280,3 +276,64 @@ def generate_open(state: Estado) -> Dict[str, Any]:
         },
         "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
     }
+
+
+def reformulate(state: Estado) -> Dict[str, Any]:
+    """Reintento de búsqueda."""
+    cambios = nodes_retrieval.reformular(state) or {}
+    consulta = cambios.get("consulta") or state["consulta"]
+    consultas = (state.get("traza") or {}).get("consultas", []) + [consulta]
+    return {
+        "consulta": consulta,
+        "filtro_cuerpos": cambios.get("filtro_cuerpos", state.get("filtro_cuerpos") or []),
+        "retry": state.get("retry", 0) + 1,
+        "traza": _actualizar_traza(state, consultas=consultas),
+    }
+
+
+def force_abstain(state: Estado) -> Dict[str, Any]:
+    """Abstención: solo llega aquí texto libre sin evidencia útil tras el reintento."""
+    return {"abstencion": True,
+            "traza": _actualizar_traza(state, abstencion="sin evidencia útil tras el reintento")}
+
+
+def build_citations(state: Estado) -> Dict[str, Any]:
+    # TODO (Paso 5): escribir referencia_legal / "Fundamento:" / marco_normativo desde los
+    # encabezados de los pasajes usados (state["usados"]).
+    return {}
+
+
+def prune_and_verify_citations(state: Estado) -> Dict[str, Any]:
+    # TODO (Paso 5): podar las citas que no están en los top-10, con citations.extract y
+    # citas_respaldadas de src.official (las mismas funciones del jurado).
+    return {}
+
+
+def fill_fields(state: Estado) -> Dict[str, Any]:
+    # TODO (Paso 5): rellenar campos vacíos con contenido respaldado (cerradas: letra de
+    # respaldo; texto libre: abstenerse si falló la generación). Hoy build_submission
+    # solo garantiza que las claves existan.
+    return {}
+
+
+VACIO = {"palabras_clave": [], "descarte_opciones": {}}
+
+
+def build_submission(state: Estado) -> Dict[str, Any]:
+    """Arma la línea del JSONL con el formato del enunciado."""
+    formato = state["formato"]
+    base = {"id": state["id"], "formato": formato}
+    campos = CAMPOS_OBLIGATORIOS[formato]
+
+    if state.get("abstencion"):
+        sub = {**base, "abstencion": True,
+               **{k: VACIO.get(k, "") for k in campos}, "pasajes_recuperados": []}
+    else:
+        salida = state.get("salida") or {}
+        pasajes = (state.get("pasajes") or [])[:TOP_K]
+        sub = {**base, "abstencion": False,
+               **{k: salida.get(k) or VACIO.get(k, "") for k in campos},
+               "pasajes_recuperados": [
+                   {k: p[k] for k in ("doc_id", "inicio", "fin", "texto", "score") if k in p}
+                   for p in pasajes]}
+    return {"submission": sub}

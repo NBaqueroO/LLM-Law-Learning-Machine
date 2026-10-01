@@ -27,5 +27,9 @@ MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
 MAX_ORACIONES_SEMI = 5
 MAX_ORACIONES_ANALISIS = 8
 
-# TODO (recuperación): TOP_K = 10, K_CANDIDATOS = 50, K_RERANK = 40, RRF_K = 60, ENCODER, RERANKER
-# TODO (evidencia):    UMBRAL_SCORE, PISO_ABSTENCION  (calibrar con sample_50)
+
+TOP_K = 10                  # pasajes que cuentan como respaldo para el evaluador
+UMBRAL_SCORE = 0.30         # debajo de esto la evidencia es "crítica" -> un reintento
+PISO_ABSTENCION = 0.05      # debajo de esto, tras reintentar, el texto libre se abstiene
+
+# TODO (Paso 3 - recuperación): K_CANDIDATOS = 50, K_RERANK = 40, RRF_K = 60, ENCODER, RERANKER

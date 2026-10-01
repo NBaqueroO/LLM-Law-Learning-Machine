@@ -9,3 +9,9 @@ sentence-transformers>=3.2
 faiss-cpu>=1.8
 rank-bm25>=0.2.2
 numpy>=1.26
+
+langgraph
+pydantic
+langchain-openai
+pytest
+# TODO (pasos siguientes): faiss-cpu, rank-bm25, sentence-transformers, jsonschema

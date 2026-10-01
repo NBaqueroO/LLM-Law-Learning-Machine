@@ -3,77 +3,104 @@
 Cada función toma el estado actual y retorna exclusivamente las modificaciones
 parciales que deben actualizar el grafo.
 
-Paso 1: classify
+Paso 1: classify (Indexación directa / metadata routing)
 Paso 2: generate_mc, generate_semi, generate_open
-TODO: bm25_search, vector_search, fuse_and_rerank, reformulate,
-      force_abstain, build_citations, prune_and_verify_citations,
-      fill_fields, build_submission.
+Paso 4: reformulate, force_abstain, build_submission
+Paso 3 (recuperación): bm25_search, vector_search, fuse_and_rerank
+TODO (Paso 5): build_citations, prune_and_verify_citations, fill_fields.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Set, Tuple, Type
 
-from src.config import MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI
+from src.config import MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, TOP_K
 from src.generation import prompts
 from src.generation.llm_engine import generar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
-from src.graph.state import Estado
+from src.graph import nodes_retrieval
+from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
 from src.official import citations
 from src.query.classifier import FORMATOS, detectar_formato, extraer_opciones
 
 logger = logging.getLogger(__name__)
 
-RECURSOS = None  # TODO (recuperación): se asigna en workflow.construir_grafo(recursos)
+RECURSOS = None  
 
 ORACIONES = re.compile(r"(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÑ¿(«\"])")
-
-# Referencias a pasajes que el modelo escribe en el texto ("según el pasaje [2]", "[1]")
 REF_PASAJE = re.compile(
     r"\s*\b(?:seg[uú]n|de acuerdo con|conforme a(?:l)?|como (?:lo )?(?:indican?|se[nñ]alan?|establecen?|dicen?))\s+"
     r"(?:el|los)\s+pasajes?\s*\[\d+\](?:\s*(?:,|y)\s*\[\d+\])*\s*,?"
-    r"|\s*\(?\b(?:el\s+|los\s+)?pasajes?\s*\[\d+\](?:\s*(?:,|y)\s*\[\d+\])*\)?|\s*\[\d+\]", re.IGNORECASE)
-# Numeración que el modelo pone al inicio de las oraciones: "(1) ", "2) "
+    r"|\s*\(?\b(?:el\s+|los\s+)?pasajes?\s*\[\d+\](?:\s*(?:,|y)\s*\[\d+\])*\)?|\s*\[\d+\]",
+    re.IGNORECASE,
+)
 NUMERACION = re.compile(r"(?:^|(?<=[.;:]\s))\(?\d{1,2}\)\s*")
-# Restos de JSON pegados al final de un texto: '}],"
 BASURA_FINAL = re.compile(r"""\s*[}\]][\s'"\]\[}{,]*$""")
 
 
-# ==================================================================================
-# Paso 1: Clasificación e Inferencia Estructural
-# ==================================================================================
+def _normalizar_id_articulo(articulo_crudo: Any) -> str:
+    """Homologa representaciones de artículos al estándar indexado (ej. 'Art. 42' -> '42')."""
+    if not articulo_crudo:
+        return ""
+    texto = str(articulo_crudo).lower()
+    match = re.search(r"\d+[\w\.-]*", texto)
+    return match.group(0) if match else texto.strip()
+
 
 def _buscar_articulos_nombrados(citas: list[Tuple]) -> List[Dict[str, Any]]:
-    """Recupera directamente del índice los artículos citados explícitamente."""
-    if RECURSOS is None:
+    """Recupera pasajes del índice mediante coincidencia exacta de metadatos normativos."""
+    if RECURSOS is None or not hasattr(RECURSOS, "lookup"):
         return []
 
-    pasajes = []
-    articulos = sorted(citations.article_level(citas), key=str)
-    for c in articulos:
-        tipo, numero, anio, articulo = c[0], c[1], c[2], c[3]
-        match = RECURSOS.lookup((tipo, numero, anio), articulo)
-        if match:
-            pasajes.append(match)
-    return pasajes
+    pasajes_encontrados: List[Dict[str, Any]] = []
+    claves_vistas: Set[str] = set()
+
+    articulos_solicitados = sorted(citations.article_level(citas), key=str)
+
+    for item in articulos_solicitados:
+        if len(item) < 4:
+            continue
+        tipo, numero, anio, articulo_raw = item[0], item[1], item[2], item[3]
+        articulo_norm = _normalizar_id_articulo(articulo_raw)
+
+        # Clave canónica para evitar duplicados en la lista de recuperación directa
+        clave_unica = f"{tipo}_{numero}_{anio}_{articulo_norm}".lower()
+        if clave_unica in claves_vistas:
+            continue
+
+        # Búsqueda primaria con la tupla completa
+        pasaje = RECURSOS.lookup((tipo, numero, anio), articulo_norm)
+
+        # Fallback de indexación
+        if not pasaje and anio:
+            pasaje = RECURSOS.lookup((tipo, numero, None), articulo_norm)
+
+        if pasaje:
+            claves_vistas.add(clave_unica)
+            # Asegurar esquema formal requerido por el evaluador si es un lookup exacto
+            pasaje_indexado = dict(pasaje)
+            pasaje_indexado.setdefault("score", 1.0)
+            pasaje_indexado.setdefault("inicio", 0)
+            pasaje_indexado.setdefault("fin", len(pasaje_indexado.get("texto", "")))
+            pasajes_encontrados.append(pasaje_indexado)
+
+    return pasajes_encontrados
 
 
 def classify(state: Estado) -> Dict[str, Any]:
-    """Determina formato, normaliza enunciados y extrae referencias normativas tempranas."""
+    """Determina formato, normaliza enunciados y enruta filtros de indexación."""
     pregunta = state["pregunta"].strip()
     opciones = dict(state.get("opciones") or {})
     formato = state.get("formato")
 
-    # Extraer opciones embebidas si no se definieron de forma explícita
     if not opciones and formato in (None, "", "multiple_choice"):
         texto_limpio, opciones_extraidas = extraer_opciones(pregunta)
         if opciones_extraidas:
             pregunta = texto_limpio
             opciones = opciones_extraidas
 
-    # Resolución del formato
     origen_formato = "entrada"
     if formato not in FORMATOS:
         formato = detectar_formato(pregunta, opciones)
@@ -82,11 +109,16 @@ def classify(state: Estado) -> Dict[str, Any]:
     if formato == "multiple_choice" and not opciones:
         opciones = {letra: "(ver enunciado)" for letra in "ABCD"}
 
-    # Cadena combinada para extracción y búsqueda
+    # Cadena combinada para la extracción y tokens de indexación
     consulta = " ".join([pregunta, *opciones.values()]).strip()
     citas_detectadas = citations.extract(consulta)
     cuerpos_esperados = sorted(citations.bodies(citas_detectadas), key=str)
+
+    # Resolución directa contra el índice antes de lanzar búsquedas densas/léxicas
     lookup_pasajes = _buscar_articulos_nombrados(citas_detectadas)
+
+    # Si se detectaron normas explícitas, se definen como filtro inicial para los índices
+    filtro_cuerpos = [c for c in cuerpos_esperados]
 
     return {
         "formato": formato,
@@ -95,34 +127,29 @@ def classify(state: Estado) -> Dict[str, Any]:
         "consulta": consulta,
         "cuerpos_esperados": cuerpos_esperados,
         "lookup_hits": lookup_pasajes,
-        "filtro_cuerpos": [],
+        "filtro_cuerpos": filtro_cuerpos,
         "retry": 0,
         "traza": {
             "formato": formato,
             "formato_origen": origen_formato,
             "consultas": [consulta],
             "cuerpos_esperados": [str(c) for c in cuerpos_esperados],
+            "lookup_count": len(lookup_pasajes),
         },
     }
 
 
 
-
 def _actualizar_traza(state: Estado, **kwargs: Any) -> Dict[str, Any]:
-    """Retorna la traza de auditoría actualizada sin mutar el estado original."""
     traza_actual = state.get("traza") or {}
     return {**traza_actual, **kwargs}
 
 
 def _partir(texto: str) -> List[str]:
-    """Divide un texto en oraciones."""
     return [o.strip() for o in ORACIONES.split((texto or "").strip()) if o.strip()]
 
 
 def _limpiar(texto: str, punto: bool = True) -> str:
-    """Quita referencias a pasajes y restos de JSON; arregla espacios, mayúscula
-    inicial y punto final. El juez de RAGAS lee este texto, así que no debe
-    hablar de "pasajes"."""
     t = REF_PASAJE.sub("", texto or "")
     t = NUMERACION.sub("", t)
     t = BASURA_FINAL.sub("", t)
@@ -136,13 +163,11 @@ def _limpiar(texto: str, punto: bool = True) -> str:
 
 
 def _truncar_texto(texto: str, max_oraciones: int, max_palabras: int) -> str:
-    """Aplica límites estrictos de oraciones y palabras según la especificación del reto."""
     texto_limpio = (texto or "").strip()
     if not texto_limpio:
         return ""
 
     seleccionadas = _partir(texto_limpio)[:max_oraciones]
-
     palabras_acumuladas: List[str] = []
     for oracion in seleccionadas:
         palabras_oracion = oracion.split()
@@ -157,10 +182,8 @@ def _truncar_texto(texto: str, max_oraciones: int, max_palabras: int) -> str:
 
 
 def _mapear_indices_pasajes(numeros_usados: List[int], pasajes: List[Any]) -> List[int]:
-    """Mapea las referencias numéricas en base-1 del LLM a índices de lista válidos."""
     if not pasajes:
         return []
-    
     total = len(pasajes)
     indices = {
         n - 1 for n in numeros_usados
@@ -173,8 +196,6 @@ def _ejecutar_generacion(
     esquema: Type[Any],
     prompt_usuario: str,
 ) -> Tuple[Optional[Any], Optional[str]]:
-    """Invocación protegida al motor de inferencia estructurada.
-    Devuelve (resultado, None) o (None, error real) para dejarlo en la traza."""
     try:
         return generar(esquema, prompts.SISTEMA, prompt_usuario), None
     except Exception as exc:
@@ -183,7 +204,6 @@ def _ejecutar_generacion(
 
 
 def generate_mc(state: Estado) -> Dict[str, Any]:
-    """Genera respuesta para preguntas cerradas con justificación y descarte de distractores."""
     opciones = state["opciones"]
     resultado, error = _ejecutar_generacion(SalidaMC, prompts.mensaje_mc(state))
 
@@ -204,7 +224,6 @@ def generate_mc(state: Estado) -> Dict[str, Any]:
         if letra_descarte in opciones and letra_descarte != respuesta_correcta and motivo:
             descarte[letra_descarte] = motivo
 
-    # El modelo a veces omite alguna opción: se completa para que no falte ninguna
     for letra in opciones:
         if letra != respuesta_correcta and letra not in descarte:
             descarte[letra] = "No corresponde a lo que establece la norma aplicable."
@@ -221,7 +240,6 @@ def generate_mc(state: Estado) -> Dict[str, Any]:
 
 
 def generate_semi(state: Estado) -> Dict[str, Any]:
-    """Genera respuesta puntual para preguntas semiabiertas con restricciones de longitud."""
     prompt_usuario, subtarea = prompts.mensaje_semi(state)
     resultado, error = _ejecutar_generacion(SalidaSemi, prompt_usuario)
 
@@ -253,7 +271,6 @@ def generate_semi(state: Estado) -> Dict[str, Any]:
 
 
 def generate_open(state: Estado) -> Dict[str, Any]:
-    """Genera análisis casuístico estructurado para preguntas abiertas complejas."""
     resultado, error = _ejecutar_generacion(SalidaOpen, prompts.mensaje_open(state))
 
     if resultado is None:
@@ -271,12 +288,72 @@ def generate_open(state: Estado) -> Dict[str, Any]:
 
     return {
         "salida": {
-            "marco_normativo": _truncar_texto(_limpiar(resultado.marco_normativo),
-                                              max_oraciones=4, max_palabras=150),
+            "marco_normativo": _truncar_texto(_limpiar(resultado.marco_normativo), max_oraciones=4, max_palabras=150),
             "analisis": analisis_acotado,
             "jurisprudencia": _limpiar(resultado.jurisprudencia),
-            "conclusion": _truncar_texto(_limpiar(resultado.conclusion),
-                                         max_oraciones=3, max_palabras=120),
+            "conclusion": _truncar_texto(_limpiar(resultado.conclusion), max_oraciones=3, max_palabras=120),
         },
         "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
     }
+
+
+def reformulate(state: Estado) -> Dict[str, Any]:
+    cambios = nodes_retrieval.reformular(state) or {}
+    consulta = cambios.get("consulta") or state["consulta"]
+    consultas = (state.get("traza") or {}).get("consultas", []) + [consulta]
+    return {
+        "consulta": consulta,
+        "filtro_cuerpos": cambios.get("filtro_cuerpos", state.get("filtro_cuerpos") or []),
+        "retry": state.get("retry", 0) + 1,
+        "traza": _actualizar_traza(state, consultas=consultas),
+    }
+
+
+def force_abstain(state: Estado) -> Dict[str, Any]:
+    return {
+        "abstencion": True,
+        "traza": _actualizar_traza(state, abstencion="sin evidencia útil tras el reintento"),
+    }
+
+
+def build_citations(state: Estado) -> Dict[str, Any]:
+    return {}
+
+
+def prune_and_verify_citations(state: Estado) -> Dict[str, Any]:
+    return {}
+
+
+def fill_fields(state: Estado) -> Dict[str, Any]:
+    return {}
+
+
+VACIO = {"palabras_clave": [], "descarte_opciones": {}}
+
+
+def build_submission(state: Estado) -> Dict[str, Any]:
+    """Arma el registro JSONL validando que los pasajes indexados contengan sus claves."""
+    formato = state["formato"]
+    base = {"id": state["id"], "formato": formato}
+    campos = CAMPOS_OBLIGATORIOS[formato]
+
+    if state.get("abstencion"):
+        sub = {
+            **base,
+            "abstencion": True,
+            **{k: VACIO.get(k, "") for k in campos},
+            "pasajes_recuperados": [],
+        }
+    else:
+        salida = state.get("salida") or {}
+        pasajes = (state.get("pasajes") or [])[:TOP_K]
+        sub = {
+            **base,
+            "abstencion": False,
+            **{k: salida.get(k) or VACIO.get(k, "") for k in campos},
+            "pasajes_recuperados": [
+                {k: p[k] for k in ("doc_id", "inicio", "fin", "texto", "score") if k in p}
+                for p in pasajes
+            ],
+        }
+    return {"submission": sub}

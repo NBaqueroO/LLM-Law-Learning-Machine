@@ -29,3 +29,8 @@ MAX_ORACIONES_ANALISIS = 8
 
 # TODO (recuperación): TOP_K = 10, K_CANDIDATOS = 50, K_RERANK = 40, RRF_K = 60, ENCODER, RERANKER
 # TODO (evidencia):    UMBRAL_SCORE, PISO_ABSTENCION  (calibrar con sample_50)
+# Recuperacion (src/retrieval): corpus.db e indices en indices/ (o con variables de entorno)
+CORPUS_DB = Path(os.environ.get("CORPUS_DB", INDICES / "corpus.db"))
+INDEX_NORMAS = Path(os.environ.get("INDEX_NORMAS", INDICES / "index_sin_sentencias"))
+INDEX_JURIS = Path(os.environ.get("INDEX_JURIS", INDICES / "index_juris"))
+TOP_K = 10

@@ -47,3 +47,7 @@ data/processed/*
 indices/*
 outputs/*.trazas.jsonl
 !**/.gitkeep
+indices/
+*.db
+*.faiss
+__pycache__/

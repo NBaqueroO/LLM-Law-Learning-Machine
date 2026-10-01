@@ -71,8 +71,24 @@ def test_lookup_primero_y_score_normalizado(con_recursos):
     salida = nodes_retrieval.fuse_and_rerank(estado)
     assert salida["pasajes"][0]["chunk_id"] == estado["lookup_hits"][0]["chunk_id"]
     assert salida["score_max"] == 1.0 and len(salida["pasajes"]) <= TOP_K
-    nueva = nodes_retrieval.reformular(estado)["consulta"]
-    assert "Derecho laboral" in nueva and "Ley 1010 de 2006" in nueva
+    nueva = nodes_retrieval.reformular(estado)
+    assert "Código Sustantivo del Trabajo" in nueva["consulta"]          # códigos probables del área
+    assert nueva["filtro_cuerpos"] == estado["cuerpos_esperados"]        # nombró una norma: se filtra por ella
+
+
+def test_reformular_sin_normas_filtra_por_los_codigos_del_area():
+    nueva = nodes_retrieval.reformular({"pregunta": "¿Cuándo hay despido sin justa causa?", "area": "Derecho laboral"})
+    assert ("codigo_sustantivo_trabajo", None, None) in nueva["filtro_cuerpos"]
+
+
+@con_indice
+def test_el_filtro_solo_se_usa_en_el_reintento(con_recursos, monkeypatch):
+    vistos = []
+    monkeypatch.setattr(con_recursos, "bm25", lambda q, n, filtro=None: vistos.append(filtro) or [])
+    estado = {"pregunta": "p", "consulta": "p", "filtro_cuerpos": [("ley", "1010", "2006")]}
+    nodes_retrieval.bm25_search({**estado, "retry": 0})
+    nodes_retrieval.bm25_search({**estado, "retry": 1})
+    assert vistos == [None, [("ley", "1010", "2006")]]
 
 
 @con_indice

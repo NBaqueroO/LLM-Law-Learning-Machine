@@ -1,7 +1,7 @@
 """
 buscar.py -- busqueda hibrida (BM25 + denso) sobre el indice de indexar.py, devolviendo
 el texto y la metadata desde corpus.db. Es la pieza que despues va dentro del nodo
-`recuperar` de LangGraph.
+de recuperación del grafo (src/graph/nodes_retrieval.py, vía src/retrieval/recursos.py).
 
   python buscar.py "requisitos de la accion de tutela" --k 5
   python buscar.py "..." --solo-bm25       # sin cargar el encoder

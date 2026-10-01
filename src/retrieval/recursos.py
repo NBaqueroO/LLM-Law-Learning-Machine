@@ -24,18 +24,20 @@ if str(CORPUS_SRC) not in sys.path:
 import rag  # noqa: E402  (src/corpus/rag.py: encabezados citables)
 from buscar import CUPO_JURIS, PREGUNTA_JURIS_RE, Buscador  # noqa: E402
 
-from src.config import CORPUS_DB, INDEX_JURIS, INDEX_NORMAS, RRF_K  # noqa: E402
+from src.config import (CORPUS_DB, INDEX_JURIS, INDEX_NORMAS, K_FILTRO, K_RERANK, RERANKER,  # noqa: E402
+                        RRF_K)
 from src.graph.state import Pasaje  # noqa: E402
 from src.official import citations  # noqa: E402
 
 
 class Recursos:
     def __init__(self, db=CORPUS_DB, index=INDEX_NORMAS, index_juris=INDEX_JURIS,
-                 usar_denso: bool = True, device: Optional[str] = None):
+                 usar_denso: bool = True, device: Optional[str] = None, reranker=RERANKER):
         index_juris = index_juris if index_juris and Path(index_juris).exists() else None
         self.db = str(db)
         self.buscador = Buscador(self.db, str(index), usar_denso=usar_denso, device=device,
-                                 index_juris=str(index_juris) if index_juris else None)
+                                 index_juris=str(index_juris) if index_juris else None,
+                                 reranker=reranker, n_rerank=K_RERANK)
         self._pasajes = rag.Pasajes(self.db)
         self._doc_de_cuerpo = None
         self._candado = threading.Lock()  # el lote corre preguntas en hilos; la búsqueda va de a una
@@ -78,24 +80,42 @@ class Recursos:
     def _indices(self):
         return {"normas": self.buscador, **({"juris": self.buscador.juris} if self.buscador.juris else {})}
 
-    def bm25(self, consulta: str, n: int) -> list[dict]:
-        """Candidatos de BM25 en los dos índices: [{chunk_id, indice, pos, rango}], sin hidratar."""
-        with self._candado:
-            return [{"chunk_id": b.ids[i], "indice": nombre, "pos": i, "rango": r}
-                    for nombre, b in self._indices().items() for r, i in enumerate(b._bm25(consulta, n))]
+    def _docs_de(self, filtro) -> set:
+        """doc_id de las normas de `filtro` (tuplas de citations) que están indexadas."""
+        mapa = self._mapa_cuerpos()
+        return {mapa[tuple(c)][0] for c in filtro or [] if tuple(c) in mapa}
 
-    def denso(self, consulta: str, n: int) -> list[dict]:
-        """Candidatos de bge-m3 en los dos índices (vacío si no hay dense.faiss)."""
+    def _candidatos(self, buscar, consulta: str, n: int, filtro) -> list[dict]:
+        """[{chunk_id, indice, pos, rango}] de los dos índices, sin hidratar. Con `filtro`, en el
+        índice donde están esas normas solo quedan sus fragmentos; el otro índice no se filtra
+        (filtrar por códigos no debe dejar la pregunta sin jurisprudencia)."""
+        docs = self._docs_de(filtro)
+        out = []
+        with self._candado:
+            for nombre, b in self._indices().items():
+                propios = {d for d in docs if d in b.doc_de.values()}
+                if propios:
+                    pos = [i for i in buscar(b, consulta, K_FILTRO) if b.ids[i].split("#", 1)[0] in propios][:n]
+                else:
+                    pos = buscar(b, consulta, n)
+                out += [{"chunk_id": b.ids[i], "indice": nombre, "pos": i, "rango": r} for r, i in enumerate(pos)]
+        return out
+
+    def bm25(self, consulta: str, n: int, filtro=None) -> list[dict]:
+        """Candidatos de BM25 (ver _candidatos)."""
+        return self._candidatos(lambda b, q, m: b._bm25(q, m), consulta, n, filtro)
+
+    def denso(self, consulta: str, n: int, filtro=None) -> list[dict]:
+        """Candidatos de bge-m3 (vacío si no hay dense.faiss)."""
         if not self.hibrido:
             return []
-        with self._candado:
-            return [{"chunk_id": b.ids[i], "indice": nombre, "pos": i, "rango": r}
-                    for nombre, b in self._indices().items() for r, i in enumerate(b._denso(consulta, n))]
+        return self._candidatos(lambda b, q, m: b._denso(q, m), consulta, n, filtro)
 
     def fusionar(self, hits: list[dict], k: int = 10, texto_citas: str = "",
-                 cupo_juris: Optional[int] = None) -> list[Pasaje]:
+                 cupo_juris: Optional[int] = None, consulta: str = "") -> list[Pasaje]:
         """Lo mismo que Buscador.buscar, pero sobre candidatos ya buscados: RRF por índice, citas
-        explícitas de `texto_citas` primero (puntaje 1.0) y cupo de jurisprudencia."""
+        explícitas de `texto_citas` primero (puntaje 1.0), reranker si está prendido (RERANKER en
+        config) y cupo de jurisprudencia."""
         with self._candado:
             rankings = {}
             for nombre, b in self._indices().items():
@@ -105,6 +125,9 @@ class Recursos:
                         puntaje[h["pos"]] = puntaje.get(h["pos"], 0.0) + 1.0 / (RRF_K + h["rango"] + 1)
                 orden = sorted(puntaje, key=lambda i: (-puntaje[i], i))
                 fijos = b._citados(texto_citas, k) if texto_citas else []
+                if b.reranker is not None:
+                    cabeza = [i for i in orden if i not in fijos][:b.n_rerank]
+                    orden = b._reordenar(consulta or texto_citas, cabeza) + [i for i in orden if i not in cabeza]
                 rankings[nombre] = [(b.ids[i], 1.0 if i in fijos else puntaje[i])
                                     for i in dict.fromkeys(fijos + orden)]
             principal, juris = rankings["normas"], rankings.get("juris")

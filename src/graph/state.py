@@ -30,15 +30,15 @@ class Estado(TypedDict, total=False):
     cuerpos_esperados: list[tuple]
     retry: int
 
-    # --- TODO recuperación: bm25_search, vector_search, fuse_and_rerank ---
+    # --- Paso 3, recuperación: bm25_search, vector_search, fuse_and_rerank ---
     lookup_hits: list[Pasaje]
     filtro_cuerpos: list[tuple]
-    bm25_hits: list[Pasaje]       # claves separadas: bm25 y denso escriben al mismo tiempo
-    dense_hits: list[Pasaje]
+    bm25_hits: list[dict]         # claves separadas: bm25 y denso escriben al mismo tiempo
+    dense_hits: list[dict]        # candidatos sin hidratar: {chunk_id, indice, pos, rango}
     pasajes: list[Pasaje]         # top-10 final
     score_max: float
 
-    # --- TODO generación y verificación ---
+    # --- Pasos 2 y 5, generación y verificación ---
     salida: dict[str, Any]
     usados: list[int]
     abstencion: bool

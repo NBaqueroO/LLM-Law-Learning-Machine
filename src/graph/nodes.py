@@ -6,8 +6,8 @@ parciales que deben actualizar el grafo.
 Paso 1: classify (Indexación directa / metadata routing)
 Paso 2: generate_mc, generate_semi, generate_open
 Paso 4: reformulate, force_abstain, build_submission
-Paso 3 (recuperación): bm25_search, vector_search, fuse_and_rerank
-TODO (Paso 5): build_citations, prune_and_verify_citations, fill_fields.
+Paso 3 (recuperación): bm25_search, vector_search, fuse_and_rerank (en nodes_retrieval.py)
+Paso 5: build_citations, prune_and_verify_citations, fill_fields.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from src.generation.llm_engine import generar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
 from src.graph import nodes_retrieval
 from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
-from src.official import citations
+from src.official import MAX_PASAJES_EVIDENCIA, answer_text, citations
 from src.query.classifier import FORMATOS, detectar_formato, extraer_opciones
 
 logger = logging.getLogger(__name__)
@@ -316,16 +316,135 @@ def force_abstain(state: Estado) -> Dict[str, Any]:
     }
 
 
+# --- Paso 5: citas y campos ----------------------------------------------------------
+# "Respaldada" significa lo mismo que en evaluate.py: la norma (sin artículo) aparece en el texto
+# de alguno de los primeros MAX_PASAJES_EVIDENCIA pasajes. Una cita sin respaldo resta el doble.
+SIN_JURISPRUDENCIA = "No se identificó jurisprudencia aplicable en los pasajes recuperados."
+DESCARTE_GENERICO = "No corresponde a lo que establece la norma aplicable."
+ENCABEZADO = re.compile(r"^\[(.+?)\]")
+
+
+def _cuerpos(texto: str) -> set:
+    return citations.bodies(citations.extract(texto or ""))
+
+
+def _respaldo(pasajes: List[Dict[str, Any]]) -> set:
+    r: set = set()
+    for p in pasajes[:MAX_PASAJES_EVIDENCIA]:
+        r |= _cuerpos(p.get("texto", ""))
+    return r
+
+
+def _limpiar_oraciones(texto: str, respaldo: set) -> str:
+    """Quita las oraciones que citan algo sin respaldo. Si no queda nada, deja el texto como
+    estaba: un campo vacío también cuenta como fallo."""
+    if not texto or not (_cuerpos(texto) - respaldo):
+        return texto
+    quedan = [o for o in _partir(texto) if not (_cuerpos(o) - respaldo)]
+    return " ".join(quedan) if quedan else texto
+
+
+def _podar_referencias(texto: str, respaldo: set, separador: str) -> str:
+    """En los campos de referencias se quita cada pieza sin respaldo, aunque no quede nada
+    (fill_fields pone entonces el encabezado del primer pasaje)."""
+    if not texto or not (_cuerpos(texto) - respaldo):
+        return texto
+    if separador == "; ":
+        piezas = [x for x in re.split(r"\s*[;\n]\s*", texto) if x.strip()]
+        return "; ".join(x for x in piezas if not (_cuerpos(x) - respaldo))
+    lineas = []
+    for linea in texto.split("\n"):
+        quedan = [o for o in _partir(linea) if not (_cuerpos(o) - respaldo)]
+        if quedan:
+            lineas.append(" ".join(quedan))
+    return "\n".join(lineas)
+
+
+def _encabezado(pasaje: Dict[str, Any]) -> str:
+    m = ENCABEZADO.match(pasaje.get("texto", ""))
+    return m.group(1) if m else pasaje.get("encabezado", "")
+
+
 def build_citations(state: Estado) -> Dict[str, Any]:
-    return {}
+    """Ordena los pasajes: primero los que respaldan las normas que cita la respuesta, luego los
+    que el modelo dijo usar y luego el resto (el evaluador solo mira los primeros 10)."""
+    pasajes = list(state.get("pasajes") or [])
+    salida = state.get("salida") or {}
+    if not pasajes or not salida:
+        return {}
+    citadas = _cuerpos(answer_text({"formato": state["formato"], **salida}))
+    usados = set(state.get("usados") or [])
+    orden = sorted(range(len(pasajes)),
+                   key=lambda i: (not (_cuerpos(pasajes[i].get("texto", "")) & citadas), i not in usados, i))
+    nuevo = {viejo: n for n, viejo in enumerate(orden)}
+    return {
+        "pasajes": [pasajes[i] for i in orden],
+        "usados": sorted(nuevo[i] for i in usados if i in nuevo),
+        "traza": _actualizar_traza(state, citadas=sorted(str(c) for c in citadas)),
+    }
 
 
 def prune_and_verify_citations(state: Estado) -> Dict[str, Any]:
-    return {}
+    """Quita las citas sin respaldo en los primeros 10 pasajes."""
+    salida = dict(state.get("salida") or {})
+    if not salida:
+        return {}
+    respaldo = _respaldo(state.get("pasajes") or [])
+    antes = _cuerpos(answer_text({"formato": state["formato"], **salida})) - respaldo
+
+    for campo in ("justificacion", "respuesta", "analisis", "conclusion"):
+        if isinstance(salida.get(campo), str):
+            salida[campo] = _limpiar_oraciones(salida[campo], respaldo)
+    if isinstance(salida.get("descarte_opciones"), dict):
+        salida["descarte_opciones"] = {l: _limpiar_oraciones(m, respaldo)
+                                       for l, m in salida["descarte_opciones"].items()}
+    if isinstance(salida.get("referencia_legal"), str):
+        salida["referencia_legal"] = _podar_referencias(salida["referencia_legal"], respaldo, "; ")
+    for campo in ("marco_normativo", "jurisprudencia"):
+        if isinstance(salida.get(campo), str):
+            salida[campo] = _podar_referencias(salida[campo], respaldo, "\n")
+
+    despues = _cuerpos(answer_text({"formato": state["formato"], **salida})) - respaldo
+    return {"salida": salida,
+            "traza": _actualizar_traza(state, sin_respaldo=sorted(str(c) for c in antes),
+                                       sin_respaldo_final=sorted(str(c) for c in despues))}
 
 
 def fill_fields(state: Estado) -> Dict[str, Any]:
-    return {}
+    """Un campo obligatorio vacío cuenta como fallo: se rellena con algo que está en la evidencia.
+    En texto libre, si el modelo falló o no dio la respuesta principal, se abstiene; en selección
+    múltiple nunca (va la primera letra si no hay otra)."""
+    formato = state["formato"]
+    salida = dict(state.get("salida") or {})
+    error = (state.get("traza") or {}).get("error_generacion")
+    principal = {"semi_open": "respuesta", "open_ended": "analisis"}.get(formato)
+    if principal and (error or not str(salida.get(principal) or "").strip()):
+        motivo = f"falló la generación: {error}" if error else f"el modelo no dio {principal}"
+        return {"abstencion": True, "traza": _actualizar_traza(state, abstencion=motivo)}
+
+    pasajes = state.get("pasajes") or []
+    encabezado = _encabezado(pasajes[0]) if pasajes else ""
+    opciones = state.get("opciones") or {}
+    rellenos = []
+    for campo in CAMPOS_OBLIGATORIOS[formato]:
+        if salida.get(campo) not in (None, "", [], {}):
+            continue
+        if campo == "respuesta_correcta":
+            valor = sorted(opciones)[0] if opciones else "A"
+        elif campo == "justificacion":
+            valor = f"Según {encabezado}." if encabezado else ""
+        elif campo == "descarte_opciones":
+            valor = {l: DESCARTE_GENERICO for l in opciones if l != salida.get("respuesta_correcta")}
+        elif campo in ("referencia_legal", "marco_normativo"):
+            valor = encabezado
+        elif campo == "jurisprudencia":
+            valor = SIN_JURISPRUDENCIA
+        else:
+            valor = None
+        if valor:
+            salida[campo] = valor
+            rellenos.append(campo)
+    return {"salida": salida, "traza": _actualizar_traza(state, rellenados=rellenos)}
 
 
 VACIO = {"palabras_clave": [], "descarte_opciones": {}}

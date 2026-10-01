@@ -16,3 +16,4 @@ langchain-openai
 pytest
 # TODO (pasos siguientes): faiss-cpu, rank-bm25, sentence-transformers, jsonschema
 bm25s
+jsonschema

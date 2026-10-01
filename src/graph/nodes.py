@@ -19,7 +19,7 @@ from src.query.classifier import FORMATOS, detectar_formato, extraer_opciones
 
 logger = logging.getLogger(__name__)
 
-RECURSOS = None  # TODO (recuperación): se asigna en workflow.construir_grafo(recursos)
+RECURSOS = None  # se asigna en workflow.construir_grafo(recursos)
 
 ORACIONES = re.compile(r"(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÑ¿(«\"])")
 

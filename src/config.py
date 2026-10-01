@@ -32,4 +32,24 @@ TOP_K = 10                  # pasajes que cuentan como respaldo para el evaluado
 UMBRAL_SCORE = 0.30         # debajo de esto la evidencia es "crítica" -> un reintento
 PISO_ABSTENCION = 0.05      # debajo de esto, tras reintentar, el texto libre se abstiene
 
-# TODO (Paso 3 - recuperación): K_CANDIDATOS = 50, K_RERANK = 40, RRF_K = 60, ENCODER, RERANKER
+# Paso 3 - recuperación. El índice no es un servidor: son archivos en indices/ que
+# Recursos.cargar() (src/retrieval/resources.py) carga una vez al arrancar:
+#   corpus.db                     texto, metadatos y offsets de cada fragmento (SQLite)
+#   index_sin_sentencias/         normas: dense.faiss (bge-m3, IndexFlatIP), bm25/, chunk_ids.json, info.json
+#   index_juris/                  sentencias, con la misma estructura
+#   index_manifest.json           encoder, prefijos, tamaños y sha256 de cada archivo (build_index.py)
+# Cada ruta se puede cambiar con una variable de entorno del mismo nombre (así lo hace el notebook de Colab).
+CORPUS_DB = Path(os.environ.get("CORPUS_DB", INDICES / "corpus.db"))
+INDEX_NORMAS = Path(os.environ.get("INDEX_NORMAS", INDICES / "index_sin_sentencias"))
+INDEX_JURIS = Path(os.environ.get("INDEX_JURIS", INDICES / "index_juris"))
+INDEX_MANIFEST = Path(os.environ.get("INDEX_MANIFEST", INDICES / "index_manifest.json"))
+
+ENCODER = os.environ.get("ENCODER", "BAAI/bge-m3")          # el del índice entregado; debe coincidir con el manifiesto
+RERANKER = os.environ.get("RERANKER", "")                    # "BAAI/bge-reranker-v2-m3" para prenderlo; vacío = sin reranker
+DISPOSITIVO = os.environ.get("DISPOSITIVO") or None          # None = GPU si hay; "cpu" si el LLM ocupa toda la GPU
+
+K_CANDIDATOS = 50           # candidatos por buscador (BM25 y denso) en cada índice
+K_RERANK = 40               # cuántos pasan por el reranker, si está prendido
+RRF_K = 60                  # constante de Reciprocal Rank Fusion
+CUPO_JURIS = 0.3            # parte del top-10 para sentencias (la mitad si la pregunta es de jurisprudencia)
+K_FILTRO = 3000             # con filtro de cuerpos: candidatos que se miran antes de quedarse con los de esas normas

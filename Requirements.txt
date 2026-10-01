@@ -1,17 +1,29 @@
+# Todo el proyecto: pip install -r requirements.txt  (el evaluador con juez: scripts/requirements-evaluador.txt)
+
+# Grafo y LLM (servidor compatible con OpenAI: Ollama o vLLM)
+langgraph
+langchain-openai
+pydantic
+jsonschema
+
+# Recuperación (src/retrieval, src/indexing)
+bm25s>=0.2
+faiss-cpu>=1.8
+sentence-transformers>=3.2
+numpy>=1.26
 transformers>=4.45
 accelerate>=0.34
 bitsandbytes>=0.43
 sentencepiece
 protobuf
+
+# Corpus (src/ingestion): descarga, PDF y OCR (Tesseract se instala aparte, ver src/ingestion/SETUP.md)
 requests
 beautifulsoup4
-sentence-transformers>=3.2
-faiss-cpu>=1.8
+pymupdf
+pytesseract
+Pillow
+truststore
 rank-bm25>=0.2.2
-numpy>=1.26
 
-langgraph
-pydantic
-langchain-openai
 pytest
-# TODO (pasos siguientes): faiss-cpu, rank-bm25, sentence-transformers, jsonschema

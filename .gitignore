@@ -47,3 +47,10 @@ data/processed/*
 indices/*
 outputs/*.trazas.jsonl
 !**/.gitkeep
+
+# corpus e índices (pesan GB: van al zip de la nube, no al repo)
+*.db
+*.faiss
+outputs/*.jsonl
+data/seed/
+.pytest_cache/

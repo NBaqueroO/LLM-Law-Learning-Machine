@@ -1,0 +1,2 @@
+# Opcional: servir el LLM con vLLM en vez de Ollama (Linux + CUDA). Ver run.sh.
+vllm>=0.6

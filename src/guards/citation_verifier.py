@@ -1,5 +1,4 @@
-"""Poda las citas que no tienen respaldo en los 10 pasajes.
-"""
+"""Poda las citas que no tienen respaldo en los 10 pasajes."""
 from __future__ import annotations
 
 import re
@@ -35,7 +34,7 @@ def podar(texto: str, cuerpos_respaldados: set[tuple], separador: str | None = N
     quedan, quitadas = [], []
     for parte in partes:
         malas = sin_respaldo(parte, cuerpos_respaldados)
-        if _CONSTITUCION in malas:   # "constitución de la sociedad" no es la Constitución
+        if _CONSTITUCION in malas: 
             parte = _FALSA_CONSTITUCION.sub(r"conformación\1", parte)
             malas = sin_respaldo(parte, cuerpos_respaldados)
         if malas:

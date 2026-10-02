@@ -1,19 +1,10 @@
-"""Paso 2: prueba manual contra el modelo REAL (Ollama o vLLM). No la corre pytest.
-
-Uso (desde la raíz del repo, con el servidor encendido):
-    python -m tests.probar_llm_real
-
-Cambia de servidor con variables de entorno (ver src/config.py):
-    PowerShell: $env:LLM_BASE_URL="http://localhost:11434/v1"; $env:LLM_MODELO="qwen3:8b"
-Si el servidor rechaza json_schema:  $env:METODO_SALIDA="json_mode"
-"""
+"""Paso 2: prueba manual contra el modelo REAL (Ollama o vLLM). No la corre pytest."""
 import json
 import time
 
 from src.config import LLM_BASE_URL, LLM_MODELO, METODO_SALIDA
 from src.graph import nodes
 
-# Textos abreviados, solo para probar el formato de salida.
 PASAJES = [
     {"chunk_id": "cgp-391", "texto": "[Código General del Proceso - Ley 1564 de 2012] Artículo 391. "
      "Demanda y contestación. El término para contestar la demanda será de diez (10) días."},

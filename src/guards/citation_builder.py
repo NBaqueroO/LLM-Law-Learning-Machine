@@ -1,5 +1,4 @@
-"""Escribe las citas desde los encabezados de los pasajes que usó el modelo.
-"""
+"""Escribe las citas desde los encabezados de los pasajes que usó el modelo."""
 from __future__ import annotations
 
 import re
@@ -45,8 +44,9 @@ def construir_citas(formato: str, salida: dict, pasajes: list[dict], usados: lis
     salida = dict(salida)
     elegidos = [i for i in usados if 0 <= i < len(pasajes)]
     if citar_recuperadas:
-        elegidos += [i for i in range(len(pasajes))
-                     if i not in elegidos and not es_sentencia(referencia(pasajes[i]))]
+        elegidos += [i for i in range(len(pasajes))  
+                     if i not in elegidos and not es_sentencia(referencia(pasajes[i]))
+                     and not pasajes[i].get("vigencia")]
     refs = _unicas([referencia(pasajes[i]) for i in elegidos])
     if not refs:
         return salida

@@ -20,7 +20,6 @@ CERRADA_TEXTO = ("¿Qué ocurre con el negocio jurídico que contraría una norm
                  "A) Es nulo absolutamente\nB) Es inexistente\nC) Es anulable\nD) Es válido")
 
 
-# --- Detección de formato -------------------------------------------------------
 @pytest.mark.parametrize("texto, esperado, n_opciones", [
     (CERRADA_TEXTO, "multiple_choice", 4),
     ("¿Qué ocurre con el negocio? A. Es nulo B. Es inexistente C. Es anulable D. Es válido",
@@ -36,7 +35,6 @@ def test_detectar_formato(texto, esperado, n_opciones):
     assert detectar_formato(enunciado, opciones) == esperado
 
 
-# --- classify ---------------------------------------------------------------------
 def test_formato_del_json_manda():
     salida = classify({"pregunta": "¿Cuál es el término para contestar?", "formato": "open_ended"})
     assert salida["formato"] == "open_ended"
@@ -48,7 +46,7 @@ def test_interfaz_solo_texto_cerrada():
     assert salida["formato"] == "multiple_choice"
     assert salida["traza"]["formato_origen"] == "detectado"
     assert set(salida["opciones"]) == {"A", "B", "C", "D"}
-    assert "A)" not in salida["pregunta"]          # el enunciado queda sin las opciones
+    assert "A)" not in salida["pregunta"]         
     assert "Es nulo absolutamente" in salida["consulta"]
 
 
@@ -59,7 +57,6 @@ def test_normas_nombradas_en_la_pregunta():
     assert salida["retry"] == 0
 
 
-# --- entrada ------------------------------------------------------------------------
 def test_entrada_no_filtra_respuestas():
     item = {"id": 1, "formato": "multiple_choice", "pregunta": "¿...?",
             "respuesta_correcta": "A", "respuesta_esperada": "x", "legal_basis": "Ley 1 de 2000",
@@ -70,7 +67,6 @@ def test_entrada_no_filtra_respuestas():
     assert estado["opciones"] == {"A": "Sí", "B": "No"}
 
 
-# --- Calibración con la muestra real (se salta si no está data/sample_50.jsonl) --------
 @pytest.mark.skipif(not SAMPLE.exists(), reason="falta data/sample_50.jsonl")
 def test_detector_sobre_sample_50(capsys):
     evaluar_detector()

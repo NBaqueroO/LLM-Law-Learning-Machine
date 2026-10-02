@@ -5,12 +5,9 @@ from __future__ import annotations
 
 import re
 
-from src.config import MAX_CHARS_PASAJE, PROMPT_EVALUACION
+from src.config import MAX_CHARS_PASAJE, MAX_PALABRAS_OPEN, MAX_PALABRAS_SEMI, METODO_SALIDA, PROMPT_EVALUACION
 from src.official import citations
 
-# ----------------------------------------------------------------------------------
-# SISTEMA: Rol + Restricciones generales
-# ----------------------------------------------------------------------------------
 SISTEMA = """# ROL
 Eres un abogado colombiano senior, con experiencia como litigante y como docente universitario \
 en las diez áreas del ordenamiento: constitucional, administrativo, penal, procesal, comercial y \
@@ -39,10 +36,14 @@ puede ser incorrecta.
 tenlo en cuenta y dilo.
 6. Lenguaje. Español, en prosa, sin viñetas, sin markdown y sin frases de relleno como \
 "Es importante destacar que".
-7. Salida. Devuelve únicamente un objeto JSON válido con las claves indicadas en FORMATO, sin \
-texto antes ni después."""
+7. Salida. {salida}"""
+SALIDA_JSON = ("Devuelve únicamente un objeto JSON válido con las claves indicadas en FORMATO, sin "
+               "texto antes ni después.")
+SALIDA_TEXTO = ("Escribe cada sección empezando con su ETIQUETA en mayúsculas seguida de dos puntos, "
+                "en el orden indicado en FORMATO, sin texto antes ni después y sin JSON.")
+EN_TEXTO = METODO_SALIDA == "texto"
+SISTEMA = SISTEMA.format(salida=SALIDA_TEXTO if EN_TEXTO else SALIDA_JSON)
 
-# Se suma a SISTEMA con PROMPT_EVALUACION=1: le dice al modelo qué revisa el calificador y cómo.
 EVALUACION = """
 
 # CÓMO SE CALIFICA TU RESPUESTA
@@ -60,24 +61,12 @@ sentencia que lo interpreta. Citar algo que no aparece en los pasajes resta el d
 if PROMPT_EVALUACION:
     SISTEMA += EVALUACION
 
-# ----------------------------------------------------------------------------------
-# Cerradas (multiple_choice)
-# ----------------------------------------------------------------------------------
 PROMPT_MC = """# TAREA
 Resuelve una pregunta de selección múltiple de derecho colombiano: elige la única opción correcta, \
 justifícala con la norma aplicable y explica por qué cada una de las demás opciones es incorrecta.
 
 # FORMATO
-Devuelve un JSON con estas claves, en este orden:
-- "razonamiento": 2 a 4 oraciones en las que identificas qué exige la pregunta y contrastas cada \
-opción con los pasajes antes de decidir.
-- "pasajes_usados": lista con los números de los pasajes en que te basas, por ejemplo [1, 3].
-- "respuesta_correcta": una sola letra mayúscula, exactamente una de estas: {letras}.
-- "justificacion": 2 a 4 oraciones que expliquen por qué esa opción es la correcta, citando la \
-norma o sentencia de los pasajes que la sustenta. No expliques aquí las otras opciones: eso va en \
-"descarte_opciones".
-- "descarte_opciones": lista con un objeto {{"letra": "...", "motivo": "..."}} por CADA opción \
-distinta de la elegida, sin omitir ninguna; cada motivo en una sola oración.
+{formato}
 
 # RESTRICCIONES DE ESTA TAREA
 - Abstente si se presenta falta de información importante para la validación o descarte de una respuesta
@@ -98,26 +87,38 @@ Pregunta:
 {pregunta}
 
 Opciones:
-{opciones}"""
+{opciones}
 
-# ----------------------------------------------------------------------------------
-# Semiabiertas (semi_open)
-# ----------------------------------------------------------------------------------
+# ENFOQUE
+Lo único que se califica es la letra. Vuelve a leer la pregunta y elige la opción que responde \
+exactamente eso según la norma, no la que suena más razonable."""
+
+FORMATO_MC_JSON = """Devuelve un JSON con estas claves, en este orden:
+- "razonamiento": 2 a 4 oraciones en las que identificas qué exige la pregunta y contrastas cada \
+opción con los pasajes antes de decidir.
+- "pasajes_usados": lista con los números de los pasajes en que te basas, por ejemplo [1, 3].
+- "respuesta_correcta": una sola letra mayúscula, exactamente una de estas: {letras}.
+- "justificacion": 2 a 4 oraciones que expliquen por qué esa opción es la correcta, citando la \
+norma o sentencia de los pasajes que la sustenta. No expliques aquí las otras opciones: eso va en \
+"descarte_opciones".
+- "descarte_opciones": lista con un objeto {{"letra": "...", "motivo": "..."}} por CADA opción \
+distinta de la elegida, sin omitir ninguna; cada motivo en una sola oración."""
+
+FORMATO_MC_TEXTO = """Escribe exactamente estas secciones, cada una empezando con su etiqueta:
+RAZONAMIENTO: 2 a 4 oraciones en las que identificas qué exige la pregunta y contrastas cada \
+opción con los pasajes antes de decidir.
+PASAJES: los números de los pasajes en que te basas, separados por coma, por ejemplo 1, 3.
+RESPUESTA: una sola letra mayúscula, exactamente una de estas: {letras}.
+JUSTIFICACIÓN: 2 a 4 oraciones que expliquen por qué esa opción es la correcta, citando la \
+norma o sentencia de los pasajes que la sustenta.
+DESCARTE: una línea por CADA opción distinta de la elegida, con la forma "letra: motivo" en una \
+sola oración."""
+
 PROMPT_SEMI = """# TAREA
 Responde de forma directa, precisa y completa una pregunta puntual de derecho colombiano.
 
 # FORMATO
-Devuelve un JSON con estas claves, en este orden:
-- "pasajes_usados": lista con los números de los pasajes en que te basas, por ejemplo [2].
-- "respuesta": de 3 a 5 oraciones y máximo 150 palabras, en un solo párrafo. La primera oración \
-responde directamente la pregunta (el dato, la autoridad, el término, la regla o el sí/no). La \
-segunda indica la norma que lo fundamenta y qué dispone. Las demás agregan condiciones, excepciones \
-o detalles SOLO si aparecen en los pasajes. Si los pasajes no traen más información, explica el \
-alcance de la regla con el contenido del pasaje, sin agregar datos nuevos: es mejor una respuesta \
-corta y correcta que una larga con datos supuestos. No numeres las oraciones.
-- "palabras_clave": lista de 3 a 6 términos jurídicos centrales de la respuesta.
-- "referencia_legal": la norma principal que fundamenta la respuesta, escrita completa como en el \
-pasaje, por ejemplo "Artículo 391 del Código General del Proceso (Ley 1564 de 2012)".
+{formato}
 
 # RESTRICCIONES DE ESTA TAREA
 - Menciona en "respuesta" la norma o sentencia que fundamenta lo que afirmas, solo si está en los \
@@ -133,28 +134,45 @@ Pasajes recuperados del corpus:
 {pasajes}
 
 Pregunta:
-{pregunta}"""
+{pregunta}
 
-# ----------------------------------------------------------------------------------
-# Abiertas (open_ended)
-# ----------------------------------------------------------------------------------
+# ENFOQUE
+{enfoque}"""
+
+_RESPUESTA_SEMI = """de 3 a 5 oraciones y máximo {max_palabras} palabras, en un solo párrafo. La \
+primera oración responde directamente la pregunta (el dato, la autoridad, el término, la regla o el \
+sí/no). La segunda indica la norma que lo fundamenta y qué dispone. Las demás agregan condiciones, \
+excepciones o detalles SOLO si aparecen en los pasajes y responden a la pregunta. Es mejor una \
+respuesta corta y correcta que una larga con datos supuestos. No numeres las oraciones."""
+
+FORMATO_SEMI_JSON = """Devuelve un JSON con estas claves, en este orden:
+- "pasajes_usados": lista con los números de los pasajes en que te basas, por ejemplo [2].
+- "respuesta": """ + _RESPUESTA_SEMI + """
+- "palabras_clave": lista de 3 a 6 términos jurídicos centrales de la respuesta.
+- "referencia_legal": la norma principal que fundamenta la respuesta, escrita completa como en el \
+pasaje, por ejemplo "Artículo 391 del Código General del Proceso (Ley 1564 de 2012)"."""
+
+FORMATO_SEMI_TEXTO = """Escribe exactamente estas secciones, cada una empezando con su etiqueta:
+RESPUESTA: """ + _RESPUESTA_SEMI + """
+REFERENCIA LEGAL: la norma principal que fundamenta la respuesta, escrita completa como en el \
+pasaje, por ejemplo "Artículo 391 del Código General del Proceso (Ley 1564 de 2012)".
+PALABRAS CLAVE: 3 a 6 términos jurídicos centrales de la respuesta, separados por punto y coma.
+PASAJES: los números de los pasajes en que te basas, separados por coma, por ejemplo 2, 4."""
+
+ENFOQUE_SEMI = """Antes de escribir, identifica qué pide exactamente la pregunta de arriba (un dato, \
+una autoridad, un plazo, un sí o no, una definición, una lista de requisitos). Tu respuesta debe \
+contestar eso y nada más. Los pasajes vienen de un buscador y varios pueden tratar otra figura \
+(otro contrato, otro proceso, otra área): usa solo los que tratan exactamente lo que se pregunta y \
+no hables de los demás. Si ningún pasaje lo trata, responde con tu conocimiento sin citar normas."""
+
+INICIO_TEXTO = "\nEmpieza tu respuesta escribiendo {etiqueta}:"
+
 PROMPT_OPEN = """# TAREA
 Resuelve un caso práctico de derecho colombiano: identifica el problema jurídico, determina las \
 normas aplicables, aplícalas a los hechos y concluye respondiendo todas las preguntas del caso.
 
 # FORMATO
-Devuelve un JSON con estas claves, en este orden:
-- "pasajes_usados": lista con los números de los pasajes en que te basas.
-- "marco_normativo": 2 a 4 oraciones que enuncien las normas aplicables que aparecen en los pasajes \
-y qué regla establece cada una para este caso.
-- "analisis": 5 a 8 oraciones. Empieza formulando el problema jurídico. Luego aplica cada norma a \
-los hechos concretos del caso (personas, fechas, actos, montos) y considera los argumentos de las \
-partes cuando los haya.
-- "jurisprudencia": 1 a 3 oraciones con las sentencias de los pasajes que aplican al caso y la \
-regla que fijaron. Si ningún pasaje contiene jurisprudencia aplicable, escribe exactamente: \
-"No se identificó jurisprudencia aplicable en los pasajes recuperados."
-- "conclusion": 1 a 3 oraciones que respondan de manera directa cada pregunta del caso, en el mismo \
-orden en que se formulan.
+{formato}
 
 # RESTRICCIONES DE ESTA TAREA
 - Si el caso hace varias preguntas, respóndelas todas en la conclusión.
@@ -170,11 +188,45 @@ Pasajes recuperados del corpus:
 {pasajes}
 
 Caso:
-{pregunta}"""
+{pregunta}
 
-# ----------------------------------------------------------------------------------
-# Sub-tareas de las semiabiertas: una instrucción extra por tipo
-# ----------------------------------------------------------------------------------
+# ENFOQUE
+Responde lo que pide el caso: sus preguntas o el problema jurídico que plantea (si algo procede, \
+quién es responsable, qué puede o debe hacerse). No copies el caso, no lo resumas y no escribas \
+preguntas: escribe tu respuesta. Todo lo que escribas debe servir para resolverlo: no expliques \
+figuras, políticas ni recomendaciones que el caso no pide. Los pasajes vienen de un buscador y \
+varios pueden no aplicar: usa solo los que tratan los hechos del caso. La conclusión da una \
+respuesta concreta (sí o no, quién, qué procede), no "depende". En total, máximo {max_palabras} \
+palabras.{inicio}"""
+
+PALABRAS_OPEN = {"marco_normativo": 100, "analisis": 250, "jurisprudencia": 60, "conclusion": 90}
+
+_CAMPOS_OPEN = [
+    ("marco_normativo", "MARCO NORMATIVO",
+     "2 a 4 oraciones (máximo {marco_normativo} palabras) que enuncien las normas aplicables que "
+     "aparecen en los pasajes y qué regla establece cada una para este caso."),
+    ("analisis", "ANÁLISIS",
+     "4 a 8 oraciones (máximo {analisis} palabras). Empieza formulando el problema jurídico. Luego "
+     "aplica cada norma a los hechos concretos del caso (personas, fechas, actos, montos) y considera "
+     "los argumentos de las partes cuando los haya."),
+    ("jurisprudencia", "JURISPRUDENCIA",
+     "1 a 2 oraciones (máximo {jurisprudencia} palabras) con las sentencias de los pasajes que "
+     "aplican al caso y la regla que fijaron. Si ningún pasaje contiene jurisprudencia aplicable, "
+     "escribe exactamente: \"No se identificó jurisprudencia aplicable en los pasajes recuperados.\""),
+    ("conclusion", "CONCLUSIÓN",
+     "1 a 3 oraciones (máximo {conclusion} palabras) que respondan de manera directa cada pregunta "
+     "del caso, en el mismo orden en que se formulan."),
+]
+
+FORMATO_OPEN_JSON = ("Devuelve un JSON con estas claves, en este orden:\n"
+                     "- \"pasajes_usados\": lista con los números de los pasajes en que te basas.\n"
+                     + "\n".join(f'- "{c}": {d}' for c, _, d in _CAMPOS_OPEN).format(**PALABRAS_OPEN))
+
+_ORDEN_TEXTO_OPEN = [_CAMPOS_OPEN[3], *_CAMPOS_OPEN[:3]]
+FORMATO_OPEN_TEXTO = ("Escribe exactamente estas secciones, cada una empezando con su etiqueta:\n"
+                      + "\n".join(f"{e}: {d}" for _, e, d in _ORDEN_TEXTO_OPEN).format(**PALABRAS_OPEN)
+                      + "\nPASAJES: los números de los pasajes en que te basas, separados por coma.")
+
 _SUBTAREAS = [
     ("reproducción literal",
      r"\b(reproduzca|transcriba|texto literal|literalmente|que dice (?:textualmente )?el articulo)\b",
@@ -230,6 +282,19 @@ INSTRUCCION_GENERAL = ("Si la pregunta tiene varias partes, respóndelas todas, 
                        "se formulan.")
 
 
+_ETIQUETA_INICIO = {"semi": "RESPUESTA", "open": "CONCLUSIÓN", "mc": "RAZONAMIENTO"}
+
+
+def correccion(problemas: list[str], anterior: str, formato: str) -> str:
+    """Bloque que se agrega al final del prompt en el reintento: qué falló y la respuesta anterior."""
+    texto = ("\n\n# CORRECCIÓN\nTu respuesta anterior a esta misma tarea fue:\n\"" + anterior[:600].strip()
+             + "\"\nTenía estos problemas:\n" + "\n".join(f"- {p}" for p in problemas)
+             + "\nEscribe una respuesta nueva que los corrija, con el mismo formato.")
+    if EN_TEXTO:
+        texto += INICIO_TEXTO.format(etiqueta=_ETIQUETA_INICIO[formato])
+    return texto
+
+
 def detectar_subtarea(pregunta: str) -> tuple[str | None, str]:
     """Devuelve (nombre, instrucción) de la primera sub-tarea que coincida, o
     (None, instrucción general). Se busca en el texto sin tildes y en minúsculas."""
@@ -245,7 +310,8 @@ def bloque_pasajes(pasajes: list[dict], max_pasajes: int | None = None) -> str:
     if not pasajes:
         return "(No se recuperaron pasajes para esta pregunta.)"
     seleccion = pasajes[:max_pasajes] if max_pasajes else pasajes
-    return "\n\n".join(f"[{i}] {p['texto'][:MAX_CHARS_PASAJE]}" for i, p in enumerate(seleccion, 1))
+    return "\n\n".join(f"[{i}] " + (f"(NO VIGENTE: {p['vigencia']}) " if p.get("vigencia") else "")
+                       + p["texto"][:MAX_CHARS_PASAJE] for i, p in enumerate(seleccion, 1))
 
 
 def _area(state: dict) -> str:
@@ -254,19 +320,24 @@ def _area(state: dict) -> str:
 
 def mensaje_mc(state: dict) -> str:
     opciones = state["opciones"]
+    formato = (FORMATO_MC_TEXTO if EN_TEXTO else FORMATO_MC_JSON).format(letras=", ".join(opciones))
     return PROMPT_MC.format(
-        letras=", ".join(opciones), area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5),
+        formato=formato, area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5),
         pregunta=state["pregunta"], opciones="\n".join(f"{l}) {t}" for l, t in opciones.items()))
 
 
 def mensaje_semi(state: dict) -> tuple[str, str | None]:
     subtarea, instruccion = detectar_subtarea(state["pregunta"])
+    formato = (FORMATO_SEMI_TEXTO if EN_TEXTO else FORMATO_SEMI_JSON).format(max_palabras=MAX_PALABRAS_SEMI)
     texto = PROMPT_SEMI.format(
+        formato=formato, enfoque=ENFOQUE_SEMI + (INICIO_TEXTO.format(etiqueta="RESPUESTA") if EN_TEXTO else ""),
         instruccion_subtarea=instruccion, area=_area(state),
         pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5), pregunta=state["pregunta"])
     return texto, subtarea
 
 
 def mensaje_open(state: dict) -> str:
-    return PROMPT_OPEN.format(area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=6),
-                              pregunta=state["pregunta"])
+    return PROMPT_OPEN.format(formato=FORMATO_OPEN_TEXTO if EN_TEXTO else FORMATO_OPEN_JSON,
+                              area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=6),
+                              pregunta=state["pregunta"], max_palabras=MAX_PALABRAS_OPEN,
+                              inicio=INICIO_TEXTO.format(etiqueta="CONCLUSIÓN") if EN_TEXTO else "")

@@ -1,5 +1,4 @@
-"""Nodos de procesamiento y generación del grafo en LangGraph.
-"""
+"""Nodos de procesamiento y generación del grafo en LangGraph."""
 
 from __future__ import annotations
 
@@ -7,36 +6,29 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from src.config import AREA_EN_CONSULTA, CITAR_RECUPERADAS, MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, SCHEMA, TOP_K
+from src.config import (AREA_EN_CONSULTA, CITAR_RECUPERADAS, MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI,
+                        MAX_PALABRAS_OPEN, MAX_PALABRAS_SEMI, SCHEMA, TOP_K, VERIFICAR)
 from src.generation import prompts
 from src.generation.llm_engine import generar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
 from src.graph import nodes_retrieval
-from src.guards import abstention_policy, citation_builder, citation_verifier
+from src.guards import abstention_policy, citation_builder, citation_verifier, cobertura
 from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
 from src.official import citations
 from src.query.classifier import FORMATOS, detectar_formato, extraer_opciones
 
 logger = logging.getLogger(__name__)
 
-RECURSOS = None  # se asigna en workflow.construir_grafo(recursos)
+RECURSOS = None 
 
 ORACIONES = re.compile(r"(?<=[.;])\s+(?=[A-ZÁÉÍÓÚÑ¿(«\"])")
 
-# Referencias a pasajes que el modelo escribe en el texto ("según el pasaje [2]", "[1]")
 REF_PASAJE = re.compile(
     r"\s*\b(?:seg[uú]n|de acuerdo con|conforme a(?:l)?|como (?:lo )?(?:indican?|se[nñ]alan?|establecen?|dicen?))\s+"
     r"(?:el|los)\s+pasajes?\s*\[\d+\](?:\s*(?:,|y)\s*\[\d+\])*\s*,?"
     r"|\s*\(?\b(?:el\s+|los\s+)?pasajes?\s*\[\d+\](?:\s*(?:,|y)\s*\[\d+\])*\)?|\s*\[\d+\]", re.IGNORECASE)
-# Numeración que el modelo pone al inicio de las oraciones: "(1) ", "2) "
 NUMERACION = re.compile(r"(?:^|(?<=[.;:]\s))\(?\d{1,2}\)\s*")
-# Restos de JSON pegados al final de un texto: '}],"
 BASURA_FINAL = re.compile(r"""\s*[}\]][\s'"\]\[}{,]*$""")
-
-
-# ==================================================================================
-# Paso 1: Clasificación e Inferencia Estructural
-# ==================================================================================
 
 def _buscar_articulos_nombrados(citas: list[Tuple]) -> List[Dict[str, Any]]:
     """Recupera directamente del índice los artículos citados explícitamente."""
@@ -59,14 +51,12 @@ def classify(state: Estado) -> Dict[str, Any]:
     opciones = dict(state.get("opciones") or {})
     formato = state.get("formato")
 
-    # Extraer opciones embebidas si no se definieron de forma explícita
     if not opciones and formato in (None, "", "multiple_choice"):
         texto_limpio, opciones_extraidas = extraer_opciones(pregunta)
         if opciones_extraidas:
             pregunta = texto_limpio
             opciones = opciones_extraidas
 
-    # Resolución del formato
     origen_formato = "entrada"
     if formato not in FORMATOS:
         formato = detectar_formato(pregunta, opciones)
@@ -75,14 +65,10 @@ def classify(state: Estado) -> Dict[str, Any]:
     if formato == "multiple_choice" and not opciones:
         opciones = {letra: "(ver enunciado)" for letra in "ABCD"}
 
-    # Cadena combinada para extracción y búsqueda
     consulta = " ".join([pregunta, *opciones.values()]).strip()
     citas_detectadas = citations.extract(consulta)
     cuerpos_esperados = sorted(citations.bodies(citas_detectadas), key=str)
     lookup_pasajes = _buscar_articulos_nombrados(citas_detectadas)
-    # El área viene en la pregunta: sus códigos probables entran a la búsqueda (no como filtro ni
-    # como cuerpos esperados). Sin esto, "cláusula abusiva" trae el Código de Comercio y no el
-    # Estatuto del Consumidor; antes solo pasaba al reformular, que casi nunca se activa.
     if AREA_EN_CONSULTA and state.get("area"):
         consulta = " ".join([consulta, *nodes_retrieval.CUERPOS_POR_AREA.get(state["area"], [])]).strip()
 
@@ -154,6 +140,15 @@ def _truncar_texto(texto: str, max_oraciones: int, max_palabras: int) -> str:
     return " ".join(palabras_acumuladas[:max_palabras])
 
 
+def _sin_preguntas(texto: str, conservar_primera: bool = False) -> str:
+    """Quita las oraciones que son preguntas: el modelo a veces copia o inventa las preguntas del
+    caso en vez de responderlas. La primera del análisis puede quedar (formula el problema jurídico)."""
+    oraciones = re.split(r"(?<=[.!?])\s+", (texto or "").strip())
+    quedan = [o for i, o in enumerate(oraciones)
+              if o and not (o.rstrip().endswith("?") and not (conservar_primera and i == 0))]
+    return " ".join(quedan)
+
+
 def _mapear_indices_pasajes(numeros_usados: List[int], pasajes: List[Any]) -> List[int]:
     """Mapea las referencias numéricas en base-1 del LLM a índices de lista válidos."""
     if not pasajes:
@@ -180,17 +175,54 @@ def _ejecutar_generacion(
         return None, repr(exc)
 
 
-def generate_mc(state: Estado) -> Dict[str, Any]:
-    """Genera respuesta para preguntas cerradas con justificación y descarte de distractores."""
-    opciones = state["opciones"]
-    resultado, error = _ejecutar_generacion(SalidaMC, prompts.mensaje_mc(state))
+def _con_revision(state: Estado, formato: str, prompt: str, una_vez, revisar) -> Dict[str, Any]:
+    """Genera; si la revisión (guards/cobertura.py) encuentra problemas, reintenta UNA vez con esos
+    problemas como instrucción y se queda con la versión que tenga menos (empate: la primera). A
+    temperatura 0 el reintento solo cambia si cambia el prompt, por eso lleva la corrección."""
+    primero = una_vez(prompt)
+    if "error" in primero:
+        return {"salida": {}, "usados": [],
+                "traza": _actualizar_traza(state, error_generacion=f"{formato}: {primero['error']}")}
+    problemas = revisar(primero) if VERIFICAR else []
+    if not problemas:
+        return {"salida": primero["salida"], "usados": primero["usados"],
+                "traza": _actualizar_traza(state, **primero.get("traza", {}))}
 
+    segundo = una_vez(prompt + prompts.correccion(problemas, primero["texto"], formato))
+    problemas_2 = revisar(segundo) if "error" not in segundo else ["error: " + segundo["error"]]
+    elegido = segundo if len(problemas_2) < len(problemas) else primero
+    revision = {"problemas": problemas, "problemas_reintento": problemas_2,
+                "elegida": 2 if elegido is segundo else 1}
+    return {"salida": elegido["salida"], "usados": elegido["usados"],
+            "traza": _actualizar_traza(state, **elegido.get("traza", {}), revision=revision)}
+
+
+class _JuezRelevancia:
+    """El reranker de RECURSOS, con su candado (las preguntas corren en paralelo)."""
+
+    def puntuar(self, consulta: str, textos: List[str]) -> List[float]:
+        with RECURSOS._candado:
+            return RECURSOS.reranker.puntuar(consulta, textos)
+
+
+def _reranker() -> Optional[_JuezRelevancia]:
+    return _JuezRelevancia() if getattr(RECURSOS, "reranker", None) is not None else None
+
+
+def generate_mc(state: Estado) -> Dict[str, Any]:
+    """Genera respuesta para preguntas cerradas con justificación y descarte de distractores.
+    Revisión: que la justificación no defienda otra letra."""
+    opciones = state["opciones"]
+    return _con_revision(
+        state, "mc", prompts.mensaje_mc(state), lambda p: _mc_una_vez(state, p),
+        lambda r: cobertura.revisar_mc(r["salida"]["respuesta_correcta"], r["salida"]["justificacion"], opciones))
+
+
+def _mc_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
+    opciones = state["opciones"]
+    resultado, error = _ejecutar_generacion(SalidaMC, prompt)
     if resultado is None:
-        return {
-            "salida": {},
-            "usados": [],
-            "traza": _actualizar_traza(state, error_generacion=f"mc: {error}"),
-        }
+        return {"error": error}
 
     letra_candidata = resultado.respuesta_correcta.strip().upper()[:1]
     respuesta_correcta = letra_candidata if letra_candidata in opciones else ""
@@ -202,39 +234,49 @@ def generate_mc(state: Estado) -> Dict[str, Any]:
         if letra_descarte in opciones and letra_descarte != respuesta_correcta and motivo:
             descarte[letra_descarte] = motivo
 
-    # El modelo a veces omite alguna opción: se completa para que no falte ninguna
     for letra in opciones:
         if letra != respuesta_correcta and letra not in descarte:
             descarte[letra] = "No corresponde a lo que establece la norma aplicable."
 
+    justificacion = _limpiar(resultado.justificacion)
     return {
         "salida": {
             "respuesta_correcta": respuesta_correcta,
-            "justificacion": _limpiar(resultado.justificacion),
+            "justificacion": justificacion,
             "descarte_opciones": descarte,
         },
         "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
-        "traza": _actualizar_traza(state, razonamiento_mc=_limpiar(resultado.razonamiento)),
+        "traza": {"razonamiento_mc": _limpiar(resultado.razonamiento)},
+        "texto": f"{respuesta_correcta}. {justificacion}",
     }
 
 
 def generate_semi(state: Estado) -> Dict[str, Any]:
-    """Genera respuesta puntual para preguntas semiabiertas con restricciones de longitud."""
+    """Genera respuesta puntual para preguntas semiabiertas con restricciones de longitud.
+    Revisión: reglas por sub-tarea y relevancia pregunta-respuesta con el reranker."""
     prompt_usuario, subtarea = prompts.mensaje_semi(state)
-    resultado, error = _ejecutar_generacion(SalidaSemi, prompt_usuario)
+    pregunta = state["pregunta"]
 
+    def revisar(r):
+        respuesta = r["salida"]["respuesta"]
+        return (cobertura.revisar_semi(pregunta, respuesta, subtarea)
+                + cobertura.revisar_relevancia(pregunta, " ".join(_partir(respuesta)[:2]), _reranker()))
+
+    out = _con_revision(state, "semi", prompt_usuario, lambda p: _semi_una_vez(state, p), revisar)
+    out["traza"] = {**out["traza"], "subtarea": subtarea}
+    return out
+
+
+def _semi_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
+    resultado, error = _ejecutar_generacion(SalidaSemi, prompt)
     if resultado is None:
-        return {
-            "salida": {},
-            "usados": [],
-            "traza": _actualizar_traza(state, error_generacion=f"semi: {error}"),
-        }
+        return {"error": error}
 
     palabras_limpias = [k.strip() for k in resultado.palabras_clave if k.strip()]
     palabras_clave = list(dict.fromkeys(palabras_limpias))[:6]
 
     respuesta_acotada = _truncar_texto(
-        _limpiar(resultado.respuesta),
+        _limpiar(cobertura.quitar_si_sobrante(state["pregunta"], resultado.respuesta)),
         max_oraciones=MAX_ORACIONES_SEMI,
         max_palabras=MAX_PALABRAS_SEMI,
     )
@@ -246,37 +288,46 @@ def generate_semi(state: Estado) -> Dict[str, Any]:
             "referencia_legal": _limpiar(resultado.referencia_legal, punto=False),
         },
         "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
-        "traza": _actualizar_traza(state, subtarea=subtarea),
+        "texto": respuesta_acotada,
     }
 
 
 def generate_open(state: Estado) -> Dict[str, Any]:
-    """Genera análisis casuístico estructurado para preguntas abiertas complejas."""
-    resultado, error = _ejecutar_generacion(SalidaOpen, prompts.mensaje_open(state))
+    """Genera análisis casuístico estructurado para preguntas abiertas complejas.
+    Revisión: preguntas copiadas, conclusión que responda el caso y relevancia con el reranker."""
+    pregunta = state["pregunta"]
 
+    def revisar(r):
+        s = r["salida"]
+        inicio = " ".join([s["conclusion"]] + _partir(s["analisis"])[:1])
+        return (cobertura.revisar_open(pregunta, r["crudo"]["analisis"], r["crudo"]["conclusion"],
+                                       s["analisis"], s["conclusion"])
+                + cobertura.revisar_relevancia(pregunta, inicio, _reranker()))
+
+    return _con_revision(state, "open", prompts.mensaje_open(state), lambda p: _open_una_vez(state, p), revisar)
+
+
+def _open_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
+    resultado, error = _ejecutar_generacion(SalidaOpen, prompt)
     if resultado is None:
-        return {
-            "salida": {},
-            "usados": [],
-            "traza": _actualizar_traza(state, error_generacion=f"open: {error}"),
-        }
+        return {"error": error}
 
-    analisis_acotado = _truncar_texto(
-        _limpiar(resultado.analisis),
-        max_oraciones=MAX_ORACIONES_ANALISIS,
-        max_palabras=400,
-    )
-
+    tope = prompts.PALABRAS_OPEN
     return {
         "salida": {
             "marco_normativo": _truncar_texto(_limpiar(resultado.marco_normativo),
-                                              max_oraciones=4, max_palabras=150),
-            "analisis": analisis_acotado,
-            "jurisprudencia": _limpiar(resultado.jurisprudencia),
-            "conclusion": _truncar_texto(_limpiar(resultado.conclusion),
-                                         max_oraciones=3, max_palabras=120),
+                                              max_oraciones=4, max_palabras=tope["marco_normativo"]),
+            "analisis": _truncar_texto(_limpiar(_sin_preguntas(resultado.analisis, conservar_primera=True)),
+                                       max_oraciones=MAX_ORACIONES_ANALISIS,
+                                       max_palabras=tope["analisis"]),
+            "jurisprudencia": _truncar_texto(_limpiar(resultado.jurisprudencia),
+                                             max_oraciones=2, max_palabras=tope["jurisprudencia"]),
+            "conclusion": _truncar_texto(_limpiar(_sin_preguntas(resultado.conclusion)),
+                                         max_oraciones=3, max_palabras=tope["conclusion"]),
         },
         "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
+        "crudo": {"analisis": resultado.analisis, "conclusion": resultado.conclusion},
+        "texto": f"{resultado.conclusion} {resultado.analisis}".strip(),
     }
 
 
@@ -337,6 +388,18 @@ def fill_fields(state: Estado) -> Dict[str, Any]:
 
 
 _VACIO = {"palabras_clave": [], "descarte_opciones": {}}
+CAMPOS_TEXTO_OPEN = ("marco_normativo", "analisis", "jurisprudencia", "conclusion")
+
+
+def _tope_open(sub: dict) -> dict:
+    """Las citas se agregan después de generar: si la respuesta abierta pasa de MAX_PALABRAS_OPEN
+    en total, se recorta el análisis (las citas y la conclusión se conservan)."""
+    total = sum(len(str(sub.get(k) or "").split()) for k in CAMPOS_TEXTO_OPEN)
+    if total <= MAX_PALABRAS_OPEN:
+        return sub
+    analisis = str(sub.get("analisis") or "")
+    disponibles = max(30, len(analisis.split()) - (total - MAX_PALABRAS_OPEN))
+    return {**sub, "analisis": _limpiar(_truncar_texto(analisis, MAX_ORACIONES_ANALISIS, disponibles))}
 
 
 def build_submission(state: Estado) -> Dict[str, Any]:
@@ -356,6 +419,8 @@ def build_submission(state: Estado) -> Dict[str, Any]:
                "pasajes_recuperados": [
                    {k: p[k] for k in ("doc_id", "inicio", "fin", "texto", "score") if k in p}
                    for p in pasajes]}
+        if formato == "open_ended":
+            sub = _tope_open(sub)
     errores = _errores_esquema(sub)
     traza = _actualizar_traza(state, errores_esquema=errores) if errores else state.get("traza")
     return {"submission": sub, "traza": traza}

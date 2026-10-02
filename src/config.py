@@ -24,6 +24,7 @@ LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "800"))  # tope de tokens 
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "400"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
 MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1200"))  # recorte de cada pasaje dentro del prompt
 MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
+MAX_PALABRAS_OPEN = 500     # límite del enunciado para la respuesta abierta (los cuatro campos juntos)
 MAX_ORACIONES_SEMI = 5
 MAX_ORACIONES_ANALISIS = 8
 
@@ -45,7 +46,7 @@ INDEX_JURIS = Path(os.environ.get("INDEX_JURIS", INDICES / "index_juris"))
 INDEX_MANIFEST = Path(os.environ.get("INDEX_MANIFEST", INDICES / "index_manifest.json"))
 
 ENCODER = os.environ.get("ENCODER", "BAAI/bge-m3")          # el del índice entregado; debe coincidir con el manifiesto
-RERANKER = os.environ.get("RERANKER", "")                    # "BAAI/bge-reranker-v2-m3" para prenderlo; vacío = sin reranker
+RERANKER = os.environ.get("RERANKER", "BAAI/bge-reranker-v2-m3")  # vacío = sin reranker. sample_50: 42/49 normas en el top-10 con él, 40/49 sin él (+0,2 s)
 DISPOSITIVO = os.environ.get("DISPOSITIVO") or None          # None = GPU si hay; "cpu" si el LLM ocupa toda la GPU
 
 K_CANDIDATOS = int(os.environ.get("K_CANDIDATOS", "50"))  # candidatos por buscador (BM25 y denso) en cada índice
@@ -54,5 +55,7 @@ RRF_K = 60                  # constante de Reciprocal Rank Fusion
 CUPO_JURIS = float(os.environ.get("CUPO_JURIS", "0.3"))  # parte del top-10 para sentencias (la mitad si la pregunta es de jurisprudencia)
 AREA_EN_CONSULTA = os.environ.get("AREA_EN_CONSULTA", "0") == "1"    # "1": la 1.ª búsqueda suma los códigos del área. Apagado: con él bajaron cerradas y juez (47,75)
 CITAR_RECUPERADAS = os.environ.get("CITAR_RECUPERADAS", "1") == "1"  # citar también las normas de los top-10 que el modelo no nombró
+VERIFICAR = os.environ.get("VERIFICAR", "1") == "1"   # revisar si la respuesta contesta la pregunta y reintentar una vez (guards/cobertura.py)
+UMBRAL_COBERTURA = float(os.environ.get("UMBRAL_COBERTURA", "0.5"))  # relevancia mínima pregunta-respuesta según el reranker
 PROMPT_EVALUACION = os.environ.get("PROMPT_EVALUACION", "0") == "1"  # "1": el prompt de sistema explica cómo se califica la respuesta
 K_FILTRO = 3000             # con filtro de cuerpos: candidatos que se miran antes de quedarse con los de esas normas

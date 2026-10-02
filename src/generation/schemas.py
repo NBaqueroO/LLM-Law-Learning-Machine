@@ -1,5 +1,5 @@
-"""Modelos Pydantic de la salida del LLM.
-"""
+"""Modelos Pydantic de la salida del LLM."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

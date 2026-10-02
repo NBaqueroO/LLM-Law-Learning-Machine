@@ -4,16 +4,15 @@
 """
 from src.graph.workflow import construir_grafo
 
-# (origen, destino, condicional): el diagrama de flujo acordado
 DIAGRAMA = {
     ("__start__", "classify", False),
-    ("classify", "bm25_search", False), ("classify", "vector_search", False),          # en paralelo
+    ("classify", "bm25_search", False), ("classify", "vector_search", False),         
     ("bm25_search", "fuse_and_rerank", False), ("vector_search", "fuse_and_rerank", False),
-    ("fuse_and_rerank", "reformulate", True),                                         # ¿evidencia suficiente?
+    ("fuse_and_rerank", "reformulate", True),                                       
     ("fuse_and_rerank", "force_abstain", True),
     ("fuse_and_rerank", "generate_mc", True), ("fuse_and_rerank", "generate_semi", True),
     ("fuse_and_rerank", "generate_open", True),
-    ("reformulate", "bm25_search", False), ("reformulate", "vector_search", False),     # retry += 1
+    ("reformulate", "bm25_search", False), ("reformulate", "vector_search", False),    
     ("generate_mc", "build_citations", False), ("generate_semi", "build_citations", False),
     ("generate_open", "build_citations", False),
     ("build_citations", "prune_and_verify_citations", False),
@@ -32,7 +31,7 @@ def test_el_grafo_es_el_diagrama():
 def test_ruta_de_una_pregunta(monkeypatch, capsys):
     """Una semiabierta con evidencia recorre el camino feliz del diagrama, en ese orden."""
     import main
-    from test_runner import ITEMS, PASAJE, llm_falso   # el LLM y la recuperación falsos (tests/ está en sys.path)
+    from test_runner import ITEMS, PASAJE, llm_falso 
     from src.graph import nodes, nodes_retrieval
     from src.runner import entrada
     monkeypatch.setattr(nodes_retrieval, "bm25_search", lambda s: {"bm25_hits": []})

@@ -1,17 +1,5 @@
-"""Paso 4 - Rutas condicionales del grafo.
+"""Paso 4 - Rutas condicionales del grafo."""
 
-Cada ruta es una función que lee el estado y devuelve el NOMBRE del siguiente nodo.
-No llaman al LLM: deciden con reglas, para que el resultado sea reproducible en la
-verificación en vivo.
-
-  ruta_evidencia (después de fuse_and_rerank):
-      evidencia crítica y sin reintento  -> reformulate
-      texto libre sin evidencia útil     -> force_abstain   (las cerradas nunca se abstienen)
-      en otro caso                       -> generate_mc | generate_semi | generate_open
-  ruta_campos (después de prune_and_verify_citations):
-      algún campo obligatorio vacío      -> fill_fields
-      en otro caso                       -> build_submission
-"""
 from __future__ import annotations
 
 from src.config import TOP_K, UMBRAL_SCORE

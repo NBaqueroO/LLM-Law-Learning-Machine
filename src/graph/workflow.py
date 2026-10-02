@@ -1,5 +1,4 @@
-""" Construcción y compilación del StateGraph.
-"""
+""" Construcción y compilación del StateGraph."""
 from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph

@@ -33,7 +33,6 @@ def _construir_cliente_base():
 
     config_extra: Optional[Dict[str, Any]] = None
     if _es_qwen3():
-        # Desactivar generación extendida de razonamiento en motores vLLM
         config_extra = {"chat_template_kwargs": {"enable_thinking": False}}
 
     return ChatOpenAI(
@@ -43,7 +42,7 @@ def _construir_cliente_base():
         temperature=0.0,
         max_tokens=LLM_MAX_TOKENS,
         timeout=LLM_TIMEOUT,
-        max_retries=0,   # con temperatura 0, reintentar un timeout solo duplica la espera
+        max_retries=0,   # temperatura 0
         extra_body=config_extra,
     )
 
@@ -64,7 +63,7 @@ def _formatear_prompt_usuario(contenido: str, nombre_esquema: str = "") -> str:
     """Aplica directivas del backend sobre el mensaje si el modelo lo requiere."""
     if _es_qwen3():
         return f"{contenido}\n/no_think"
-    if nombre_esquema == "SalidaMC":
+    if nombre_esquema == "SalidaMC" and METODO_SALIDA != "texto":
         return f'{contenido}\n\nResponde ÚNICAMENTE con el objeto JSON:\n{{"razonamiento": "...", "pasajes_usados": [1], "respuesta_correcta": "LETRA", "justificacion": "...", "descarte_opciones": []}}'
     return contenido
 
@@ -72,11 +71,9 @@ def _formatear_prompt_usuario(contenido: str, nombre_esquema: str = "") -> str:
 def _extraer_json(texto: str) -> str:
     """Extrae el primer bloque o estructura JSON válida de una respuesta en texto."""
     texto = texto.strip()
-    # 1. Si viene en un bloque de código ```json ... ```
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, re.DOTALL)
     if match:
         return match.group(1).strip()
-    # 2. Si viene delimitado entre llaves { ... }
     inicio = texto.find("{")
     fin = texto.rfind("}")
     if inicio != -1 and fin != -1 and fin > inicio:
@@ -84,8 +81,59 @@ def _extraer_json(texto: str) -> str:
     return texto
 
 
+ETIQUETAS = {
+    "SalidaMC": {"RAZONAMIENTO": "razonamiento", "PASAJES": "pasajes_usados",
+                 "PASAJES USADOS": "pasajes_usados", "RESPUESTA": "respuesta_correcta",
+                 "RESPUESTA CORRECTA": "respuesta_correcta", "JUSTIFICACIÓN": "justificacion",
+                 "JUSTIFICACION": "justificacion", "DESCARTE": "descarte_opciones",
+                 "DESCARTE DE OPCIONES": "descarte_opciones"},
+    "SalidaSemi": {"PASAJES": "pasajes_usados", "PASAJES USADOS": "pasajes_usados",
+                   "RESPUESTA": "respuesta", "PALABRAS CLAVE": "palabras_clave",
+                   "REFERENCIA LEGAL": "referencia_legal", "REFERENCIA": "referencia_legal"},
+    "SalidaOpen": {"PASAJES": "pasajes_usados", "PASAJES USADOS": "pasajes_usados",
+                   "MARCO NORMATIVO": "marco_normativo", "ANÁLISIS": "analisis",
+                   "ANALISIS": "analisis", "JURISPRUDENCIA": "jurisprudencia",
+                   "CONCLUSIÓN": "conclusion", "CONCLUSION": "conclusion"},
+}
+
+
+def _secciones(texto: str, etiquetas: Dict[str, str]) -> Dict[str, str]:
+    """Parte el texto en secciones 'ETIQUETA: contenido' (la etiqueta al inicio de línea,
+    con o sin markdown alrededor). Si una etiqueta se repite, gana la primera."""
+    alternativas = "|".join(re.escape(e) for e in sorted(etiquetas, key=len, reverse=True))
+    rx = re.compile(rf"^[\s>#*\-]*({alternativas})[\s*]*:", re.IGNORECASE | re.MULTILINE)
+    marcas = list(rx.finditer(texto))
+    out: Dict[str, str] = {}
+    for m, sig in zip(marcas, marcas[1:] + [None]):
+        contenido = texto[m.end(): sig.start() if sig else len(texto)].strip().strip("*").strip()
+        out.setdefault(etiquetas[m.group(1).upper()], contenido)
+    return out
+
+
+def _numeros(texto: str) -> List[int]:
+    return [int(n) for n in re.findall(r"\d+", texto or "")]
+
+
+def _letra(texto: str) -> Optional[str]:
+    """Letra elegida: patrones claros ("respuesta correcta es C", "opción C", "C)") o la primera suelta."""
+    m = re.search(r"(?:respuesta correcta es|opci[oó]n)\s*[:\s]*([A-H])\b|^\s*([A-H])\b|[(\[]([A-H])[)\]]",
+                  texto or "", re.IGNORECASE)
+    if m:
+        return (m.group(1) or m.group(2) or m.group(3)).upper()
+    m = re.search(r"\b([A-H])\b", texto or "")
+    return m.group(1).upper() if m else None
+
+
+def _cierre(texto: str) -> str:
+    """Conclusión de una respuesta en prosa: la primera oración (el prompt pide empezar por la
+    respuesta directa) y la última, si es otra."""
+    oraciones = [o for o in re.split(r"(?<=[.!?])\s+", (texto or "").strip()) if o]
+    return " ".join(dict.fromkeys(oraciones[:1] + oraciones[-1:]))
+
+
 def _extraer_o_construir_esquema(esquema: Type[T], texto: str) -> T:
-    """Extrae JSON del texto o infiere los campos del esquema a partir de una respuesta en prosa."""
+    """Extrae JSON del texto; si no hay, lee las secciones con etiqueta; si tampoco, reparte la
+    prosa entre los campos sin cortar palabras (los nodos recortan por oraciones y palabras)."""
     json_candidato = _extraer_json(texto)
     try:
         return esquema.model_validate_json(json_candidato)
@@ -93,42 +141,45 @@ def _extraer_o_construir_esquema(esquema: Type[T], texto: str) -> T:
         pass
 
     nombre = getattr(esquema, "__name__", "")
+    texto = (texto or "").strip()
+    sec = _secciones(texto, ETIQUETAS.get(nombre, {}))
+    usados = _numeros(sec.get("pasajes_usados", "")) or [1]
+
     if nombre == "SalidaMC":
-        from src.generation.schemas import SalidaMC
-        letra = "A"
-        # 1. Buscar patrones claros: "respuesta correcta es C", "opción C", "C)"
-        match = re.search(r"(?:respuesta correcta es|opci[oó]n)\s*[:\s]*([A-D])\b|^\s*([A-D])\b|[(\[]([A-D])[)\]]", texto, re.IGNORECASE)
-        if match:
-            letra = (match.group(1) or match.group(2) or match.group(3)).upper()
-        else:
-            match2 = re.search(r"\b([A-D])\b", texto)
-            if match2:
-                letra = match2.group(1).upper()
+        from src.generation.schemas import DescarteOpcion, SalidaMC
+        descarte = []
+        for linea in (sec.get("descarte_opciones") or "").splitlines():
+            m = re.match(r"^[\s\-*]*\(?([A-H])\)?\s*[:.)\-]\s*(.+)$", linea.strip())
+            if m:
+                descarte.append(DescarteOpcion(letra=m.group(1).upper(), motivo=m.group(2).strip()))
         return SalidaMC(
-            razonamiento=texto[:250].strip(),
-            pasajes_usados=[1],
-            respuesta_correcta=letra,
-            justificacion=texto.strip(),
-            descarte_opciones=[],
+            razonamiento=sec.get("razonamiento") or texto[:250],
+            pasajes_usados=usados,
+            respuesta_correcta=_letra(sec.get("respuesta_correcta", "")) or _letra(texto) or "A",
+            justificacion=sec.get("justificacion") or texto,
+            descarte_opciones=descarte,
         )
 
     if nombre == "SalidaSemi":
         from src.generation.schemas import SalidaSemi
+        claves = [k.strip(" .") for k in re.split(r"[;,\n]", sec.get("palabras_clave", "")) if k.strip(" .")]
         return SalidaSemi(
-            pasajes_usados=[1],
-            respuesta=texto[:400].strip(),
-            palabras_clave=[],
-            referencia_legal="",
+            pasajes_usados=usados,
+            respuesta=sec.get("respuesta") or texto,
+            palabras_clave=claves,
+            referencia_legal=sec.get("referencia_legal", ""),
         )
 
     if nombre == "SalidaOpen":
         from src.generation.schemas import SalidaOpen
+        if not sec: 
+            sec = {"analisis": texto, "conclusion": _cierre(texto)}
         return SalidaOpen(
-            pasajes_usados=[1],
-            marco_normativo="",
-            analisis=texto[:1000].strip(),
-            jurisprudencia="",
-            conclusion=texto[-300:].strip() if len(texto) > 300 else texto.strip(),
+            pasajes_usados=usados,
+            marco_normativo=sec.get("marco_normativo", ""),
+            analisis=sec.get("analisis") or texto,
+            jurisprudencia=sec.get("jurisprudencia", ""),
+            conclusion=sec.get("conclusion", ""),
         )
 
     return esquema.model_validate_json(json_candidato)
@@ -147,7 +198,7 @@ def generar(esquema: Type[T], sistema: str, usuario: str) -> T:
     ]
 
     try:
-        if METODO_SALIDA == "texto":  # el servidor ignora response_format: ir directo al fallback
+        if METODO_SALIDA == "texto":
             raise NotImplementedError
         invocador = _obtener_invocador_estructurado(esquema)
         res = invocador.invoke(mensajes)
@@ -162,7 +213,6 @@ def generar(esquema: Type[T], sistema: str, usuario: str) -> T:
             err,
         )
 
-    # Fallback: llamada de texto plano e inferencia de esquema
     texto_resp = texto_libre(sistema, usuario)
     return _extraer_o_construir_esquema(esquema, texto_resp)
 

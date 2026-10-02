@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
-"""¿Las normas y sentencias que piden las preguntas estan en el corpus?
-
-Para cada pregunta saca las citas de legal_basis con el extractor OFICIAL (citations.py del
-kit, el mismo que usa evaluate.py, a nivel de norma) y mira cada una en tres lugares:
-  1. corpus.db: hay un documento 'ok' con chunks cuya norma es esa cita.
-  2. los indices (--index, uno o varios): algun chunk de ese documento esta indexado.
-  3. la entrega (--entrega, opcional): esa norma esta en los 10 pasajes_recuperados.
-Con eso cada cita queda en una de cuatro cajas:
-  RECUPERADA        estaba en los 10 pasajes          -> si la pregunta falla, es el modelo
-  NO RECUPERADA     esta en el indice pero no salio   -> problema de busqueda
-  FUERA DEL INDICE  esta en corpus.db pero no indexada (p. ej. --sin-sentencias-extra)
-  FALTA             no esta en corpus.db             -> hay que bajarla (cobertura)
-Al final imprime los comandos para bajar lo que falta y los deja en faltantes.txt.
-
-  python cobertura.py --db data/corpus.db --preguntas sample_50.jsonl \
-      --index data/index_sin_sentencias data/index_juris --entrega entregas/grafo.jsonl
-  python cobertura.py --preguntas otras_preguntas.jsonl          # sin entrega: solo cobertura
-
-Las preguntas pueden ser cualquier JSONL con id y legal_basis (y formato/respuesta_correcta
-para separar las cerradas). Solo se usan para medir; nunca entran al corpus ni al indice.
-"""
+"""¿Las normas y sentencias que piden las preguntas estan en el corpus?"""
 import argparse, json, sqlite3, sys
 from collections import Counter
 from pathlib import Path

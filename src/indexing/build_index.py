@@ -1,13 +1,5 @@
-"""Construye los dos índices y escribe indices/index_manifest.json.
+"""Construye los dos índices y escribe indices/index_manifest.json."""
 
-    python -m src.indexing.build_index                     # BM25 + bge-m3 de normas y jurisprudencia (GPU)
-    python -m src.indexing.build_index --solo-bm25         # sin vectores (CPU, minutos)
-    python -m src.indexing.build_index --solo-manifiesto   # índices ya construidos (los de Drive): solo el manifiesto
-
-El manifiesto guarda el encoder, sus prefijos, la dimensión, cuántos fragmentos tiene cada índice,
-la fecha y el sha256 de cada archivo: con eso se demuestra que el índice entregado es el mismo que
-se usó para responder. Recursos.cargar() se detiene si el encoder de config no es el del manifiesto.
-"""
 from __future__ import annotations
 
 import argparse
@@ -21,9 +13,6 @@ from pathlib import Path
 from src.config import CORPUS_DB, ENCODER, INDEX_JURIS, INDEX_MANIFEST, INDEX_NORMAS
 
 INDEXAR = Path(__file__).with_name("indexar.py")
-# Los mismos filtros con los que se midió la recuperación (ver GUIA_VECTORES.md): el índice de normas
-# deja fuera decretos y sentencias que no están en el banco y leyes que solo meten ruido; la
-# jurisprudencia va aparte y entra al top-10 con un cupo.
 PASOS = {
     "normas": ["--sin-decretos-extra", "--sin-sentencias-extra", "--sin-leyes-ruido", "--nombre-codigo"],
     "juris": ["--solo-sentencias"],
@@ -67,7 +56,7 @@ def verificar(salida: Path = INDEX_MANIFEST) -> list[str]:
     for clave, h in man["archivos"].items():
         ruta = salida.parent / clave
         if not ruta.exists() and clave == CORPUS_DB.name:
-            ruta = CORPUS_DB  # en Colab corpus.db va en disco local y los índices en Drive
+            ruta = CORPUS_DB
         if not ruta.exists() or sha256(ruta) != h:
             malos.append(clave)
     return malos

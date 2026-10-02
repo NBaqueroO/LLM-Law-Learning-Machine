@@ -1,6 +1,4 @@
-"""Cuándo abstenerse y cómo rellenar lo que falte. 
-
-"""
+"""Cuándo abstenerse y cómo rellenar lo que falte. """
 from __future__ import annotations
 
 from src.config import PISO_ABSTENCION
@@ -62,7 +60,7 @@ def rellenar(formato: str, salida: dict, opciones: dict, pasajes: list[dict],
             claves = [r.split(",")[0] for r in refs[:3]]
             salida["palabras_clave"] = claves or ["derecho colombiano"]
 
-    else:  # open_ended
+    else: 
         normas = [r for r in refs if not es_sentencia(r)]
         if not salida.get("marco_normativo"):
             salida["marco_normativo"] = normas[0] + "." if normas else SIN_REFERENCIA

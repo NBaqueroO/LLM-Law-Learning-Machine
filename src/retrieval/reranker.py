@@ -1,5 +1,6 @@
-"""Reranker opcional (cross-encoder). Apagado por defecto: en sample_50 bge-reranker-v2-m3 no
-mejoró la recuperación (26/40 normas correctas en el top-10 contra 27/40 sin él) y tardaba el doble."""
+"""Reranker opcional (cross-encoder). Prendido por defecto (config.RERANKER): con el índice actual
+bge-reranker-v2-m3 sube las normas de referencia de sample_50 en el top-10 de 40/49 a 42/49 y suma
+~0,2 s por pregunta. Con el índice anterior no mejoraba (26/40 contra 27/40)."""
 from __future__ import annotations
 
 import math

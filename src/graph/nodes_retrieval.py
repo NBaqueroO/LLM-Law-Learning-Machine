@@ -1,33 +1,20 @@
-"""Paso 3 - Nodos de recuperación.
-
-bm25_search y vector_search corren en paralelo y dejan candidatos sin hidratar de los dos índices
-(normas y jurisprudencia). fuse_and_rerank los junta:
-
-  1. RRF por índice (src/retrieval/rrf.py) sobre las dos listas,
-  2. adelante lo que la pregunta nombra ("artículo 391 del CGP", "Sentencia C-355 de 2006"),
-  3. reranker sobre los primeros K_RERANK, si RERANKER está prendido,
-  4. cupo de jurisprudencia (30 %, o la mitad si la pregunta es de jurisprudencia),
-  5. los lookup_hits de classify primero con score 1.0, y exactamente TOP_K pasajes.
-
-score_max va de 0 a 1: el RRF del mejor pasaje dividido por el máximo posible (primero en todos
-los buscadores); las citas explícitas valen 1.0. Con eso UMBRAL_SCORE y PISO_ABSTENCION se leen igual
-con o sin el denso.
-"""
+"""Paso 3 - Nodos de recuperación."""
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict
 
 from src.config import CUPO_JURIS, K_CANDIDATOS, K_RERANK, TOP_K
+from src.generation import prompts
 from src.graph.state import Estado
+from src.guards import vigencia
 from src.official import citations
 from src.retrieval import rrf
 
 logger = logging.getLogger(__name__)
 
-RECURSOS = None  # se asigna en workflow.construir_grafo(recursos)
+RECURSOS = None 
 
-# Códigos que suelen responder las preguntas de cada área (el área viene en la pregunta y se puede usar).
 CUERPOS_POR_AREA = {
     "Derecho constitucional": ["Constitución Política"],
     "Derecho administrativo": ["CPACA", "Constitución Política"],
@@ -73,11 +60,12 @@ def _ranking(indice: str, hits: list, texto_citas: str, consulta: str) -> list[t
     return [(c, 1.0) for c in fijos] + resto
 
 
-def _con_cupo(rankings: dict, texto: str) -> list[tuple[str, float]]:
-    """Mezcla normas y jurisprudencia: citados primero, luego cada parte con su cupo."""
+def _con_cupo(rankings: dict, texto: str, n: int = TOP_K) -> list[tuple[str, float]]:
+    """Mezcla normas y jurisprudencia: citados primero, luego cada parte con su cupo. Con n > TOP_K
+    los primeros TOP_K son los mismos y el resto queda de reemplazo (para bajar normas derogadas)."""
     normas_r, juris_r = rankings.get("normas", []), rankings.get("juris")
     if juris_r is None:
-        return normas_r[:TOP_K]
+        return normas_r[:n]
     es_juris = RECURSOS.es_pregunta_de_jurisprudencia(texto)
     cupo = TOP_K // 2 if es_juris else max(1, round(TOP_K * CUPO_JURIS))
     fijos = [x for x in normas_r + juris_r if x[1] >= 1.0]
@@ -85,25 +73,36 @@ def _con_cupo(rankings: dict, texto: str) -> list[tuple[str, float]]:
     sents = [x for x in juris_r if x[1] < 1.0]
     partes = [sents[:cupo], normas[:TOP_K - cupo]] if es_juris else [normas[:TOP_K - cupo], sents[:cupo]]
     top, vistos = [], set()
-    for cid, s in fijos + partes[0] + partes[1] + normas + sents:  # lo que sobre rellena
+    for cid, s in fijos + partes[0] + partes[1] + normas + sents:
         if cid not in vistos:
             vistos.add(cid)
             top.append((cid, s))
-    return top[:TOP_K]
+    return top[:n]
+
+
+def _vigentes_primero(pasajes: list, pregunta: str) -> list:
+    """Marca la vigencia de cada pasaje y baja al final los derogados o inexequibles, salvo que la
+    pregunta sea justamente de vigencia o de versión. El orden entre vigentes no cambia."""
+    marcados = [dict(p, vigencia=v) if (v := vigencia.estado(p.get("texto", ""))) else p for p in pasajes]
+    if prompts.detectar_subtarea(pregunta)[0] in ("vigencia temporal", "validación normativa"):
+        return marcados
+    return sorted(marcados, key=lambda p: bool(p.get("vigencia")))
 
 
 def fuse_and_rerank(state: Estado) -> Dict[str, Any]:
     """Top-K final. Las citas explícitas se buscan solo en el enunciado: las opciones de selección
     múltiple suelen nombrar normas que son distractores, y la consulta trae los códigos del área."""
     lookup = [dict(p, score=1.0) for p in (state.get("lookup_hits") or [])]
-    hallados, n_listas = [], 1
+    hallados, n_listas, mejor_candidato = [], 1, 0.0
     if RECURSOS is not None:
         consulta = _consulta(state)
-        texto_citas = state["pregunta"]   # las citas explícitas salen del enunciado, no de lo que se le sumó
+        texto_citas = state["pregunta"]
         hits = list(state.get("bm25_hits") or []) + list(state.get("dense_hits") or [])
         rankings = {nombre: _ranking(nombre, hits, texto_citas, consulta) for nombre in RECURSOS.indices}
-        hallados = RECURSOS.pasajes(_con_cupo(rankings, texto_citas))
+        hallados = _vigentes_primero(RECURSOS.pasajes(_con_cupo(rankings, texto_citas, n=2 * TOP_K)),
+                                     texto_citas)
         n_listas = RECURSOS.n_listas
+        mejor_candidato = max((s for r in rankings.values() for _, s in r), default=0.0)
 
     pasajes, vistos = [], set()
     for p in lookup + hallados:
@@ -113,8 +112,9 @@ def fuse_and_rerank(state: Estado) -> Dict[str, Any]:
     pasajes = pasajes[:TOP_K]
 
     tope = rrf.maximo(n_listas)
-    score_max = max((1.0 if p.get("score", 0.0) >= 1.0 else min(1.0, p.get("score", 0.0) / tope)
-                     for p in pasajes), default=0.0)
+    score_max = max((1.0 if s >= 1.0 else min(1.0, s / tope)
+                     for s in [p.get("score", 0.0) for p in pasajes] + ([mejor_candidato] if pasajes else [])),
+                    default=0.0)
     traza = {**(state.get("traza") or {}),
              "recuperados": [f"{p['chunk_id']} | {p.get('encabezado', '')}" for p in pasajes],
              "score_max": round(score_max, 3)}
@@ -127,7 +127,7 @@ def _normas_por_llm(pregunta: str) -> list[str]:
         from src.generation.llm_engine import texto_libre
         r = texto_libre("Eres un abogado colombiano. Responde solo con nombres de normas separados por punto y coma.",
                         f"¿Qué códigos o leyes colombianas regulan esta pregunta? {pregunta}")
-    except Exception as e:  # sin servidor o sin respuesta: se reintenta sin filtro
+    except Exception as e: 
         logger.warning("reformular sin LLM: %s", e)
         return []
     return [x.strip() for x in (r or "").split(";") if citations.extract(x)][:3]

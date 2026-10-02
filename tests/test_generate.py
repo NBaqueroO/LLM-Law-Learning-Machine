@@ -5,6 +5,7 @@ Correr desde la raíz del repo:  python -m pytest tests -q
 import pytest
 
 from src.generation import prompts
+from src.generation import llm_engine
 from src.generation.schemas import DescarteOpcion, SalidaMC, SalidaOpen, SalidaSemi
 from src.graph import nodes
 
@@ -60,6 +61,37 @@ def test_detectar_subtarea(pregunta, subtarea):
 
 def test_sin_pasajes():
     assert "No se recuperaron pasajes" in prompts.bloque_pasajes([])
+
+
+def test_bloque_pasajes_separa_origen_y_prioriza_enunciado():
+    texto = prompts.bloque_pasajes([
+        {"texto": "Fuente del enunciado", "origenes": ["enunciado"]},
+        {"texto": "Fuente de búsqueda", "origenes": ["busqueda"]},
+        {"texto": "Fuente de opción", "origenes": ["opciones"]},
+    ])
+
+    assert texto.index("[1] Fuente del enunciado") < texto.index("[2] Fuente de búsqueda")
+    assert texto.index("[2] Fuente de búsqueda") < texto.index("[3] Fuente de opción")
+    assert "Fuentes citadas explícitamente en el enunciado" in texto
+    assert "Fuentes recuperadas por BM25/vectorial" in texto
+    assert "Fuentes citadas explícitamente en opciones" in texto
+
+
+def test_backend_transformers_valida_json(monkeypatch):
+    monkeypatch.setattr(llm_engine, "LLM_BACKEND", "transformers")
+    monkeypatch.setattr(llm_engine, "_generar_local", lambda sistema, usuario: (
+        'Respuesta:\n{"pasajes_usados": [1], "respuesta": "Regla aplicable.", '
+        '"palabras_clave": ["regla"], "referencia_legal": "Ley 1 de 2000"}'
+    ))
+
+    salida = llm_engine.generar(SalidaSemi, "sistema", "pregunta")
+
+    assert salida.respuesta == "Regla aplicable."
+
+
+def test_backend_transformers_falla_si_no_hay_json():
+    with pytest.raises(ValueError, match="no devolvió un objeto JSON válido"):
+        llm_engine._validar_json(SalidaSemi, "No pude responder.")
 
 
 # --- Nodos con LLM falso ----------------------------------------------------------------

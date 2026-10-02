@@ -60,6 +60,14 @@ sentencia que lo interpreta. Citar algo que no aparece en los pasajes resta el d
 if PROMPT_EVALUACION:
     SISTEMA += EVALUACION
 
+SISTEMA += """
+
+8. Procedencia y prioridad. Los pasajes citados explícitamente en el enunciado son el punto de \
+partida prioritario, pero verifica que respondan la pregunta. Los pasajes recuperados por búsqueda \
+son evidencia complementaria. Los pasajes citados en las opciones se incluyen para contrastarlas: \
+no asumas que una opción es correcta solo porque cita una norma, ni descartes esa fuente sin \
+comprobar si resulta aplicable."""
+
 # ----------------------------------------------------------------------------------
 # Cerradas (multiple_choice)
 # ----------------------------------------------------------------------------------
@@ -80,13 +88,20 @@ norma o sentencia de los pasajes que la sustenta. No expliques aquí las otras o
 distinta de la elegida, sin omitir ninguna; cada motivo en una sola oración.
 
 # RESTRICCIONES DE ESTA TAREA
-- Elige siempre una opción, aunque la evidencia sea incompleta. Nunca dejes la letra vacía.
+- Abstente en caso de que la evidencia sea insuficiente para elegir una opción: \
+no inventes ni supongas datos que no estén en los pasajes, si te falta información de una \
+ley en una opción mencionalo en tu respuesta comoa argumento.
 - Lee con cuidado las negaciones y excepciones del enunciado ("NO", "excepto", "incorrecta", \
 "falsa"): si la pregunta pide la opción falsa, elige la falsa.
 - Si dos opciones parecen correctas, elige la más completa y la más fiel al texto de la norma.
 - Distingue conceptos cercanos que suelen usarse como distractores: nulidad absoluta y relativa, \
 inexistencia e ineficacia; caducidad y prescripción; competencia y jurisdicción; revocatoria y \
 nulidad; recurso de reposición, apelación y queja.
+- Prioriza las fuentes citadas en el enunciado; usa las recuperadas para complementar y las citadas \
+en las opciones para verificar si cada distractor realmente corresponde.
+- Valida lo que la pregunta te pide, si te hablan de un area grande y te piden algo particular \
+asegurate que la norma especifique la peticion que tiene ej: si se pide plazo supletorio y la ley \
+habla tanto del supletorio como del ordinario, valora cual estan pidiendo y si la norma lo contempla o no.
 
 # CONTEXTO
 Área del derecho: {area}
@@ -238,10 +253,37 @@ def detectar_subtarea(pregunta: str) -> tuple[str | None, str]:
 
 
 def bloque_pasajes(pasajes: list[dict]) -> str:
-    """Numera los pasajes y recorta cada uno a MAX_CHARS_PASAJE caracteres."""
+    """Agrupa por procedencia y numera globalmente para conservar los índices que devuelve el LLM."""
     if not pasajes:
         return "(No se recuperaron pasajes para esta pregunta.)"
-    return "\n\n".join(f"[{i}] {p['texto'][:MAX_CHARS_PASAJE]}" for i, p in enumerate(pasajes, 1))
+
+    orden = {"enunciado": 0, "busqueda": 1, "opciones": 2}
+
+    def grupo_principal(pasaje):
+        return min((orden[o] for o in pasaje.get("origenes", ["busqueda"]) if o in orden),
+                   default=orden["busqueda"])
+
+    titulos = (
+        "Fuentes citadas explícitamente en el enunciado (prioridad principal):",
+        "Fuentes recuperadas por BM25/vectorial:",
+        "Fuentes citadas explícitamente en opciones (para contrastar):",
+    )
+    partes = []
+    grupo_actual = None
+    for numero, pasaje in enumerate(pasajes, 1):
+        grupo = grupo_principal(pasaje)
+        if grupo != grupo_actual:
+            partes.append(titulos[grupo])
+            grupo_actual = grupo
+        origenes = set(pasaje.get("origenes", ["busqueda"]))
+        notas = []
+        if grupo != orden["busqueda"] and "busqueda" in origenes:
+            notas.append("también recuperado por búsqueda")
+        if grupo != orden["opciones"] and "opciones" in origenes:
+            notas.append("también citado en opciones")
+        sufijo = f" ({'; '.join(notas)})" if notas else ""
+        partes.append(f"[{numero}] {pasaje['texto'][:MAX_CHARS_PASAJE]}{sufijo}")
+    return "\n\n".join(partes)
 
 
 def _area(state: dict) -> str:

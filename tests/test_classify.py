@@ -4,6 +4,7 @@ Tests
 import pytest
 
 from src.config import SAMPLE
+from src.graph import nodes
 from src.graph.nodes import classify
 from src.query.classifier import detectar_formato, evaluar_detector, extraer_opciones
 from src.runner import entrada
@@ -57,6 +58,25 @@ def test_normas_nombradas_en_la_pregunta():
                        "formato": "semi_open"})
     assert ("codigo_general_proceso", None, None) in salida["cuerpos_esperados"]
     assert salida["retry"] == 0
+
+
+def test_citas_enunciado_y_opciones_se_separan_sin_perder_lookup(monkeypatch):
+    class RecursosFalsos:
+        def lookup(self, cuerpo, articulo):
+            return {"chunk_id": f"{cuerpo[0]}-{articulo}", "score": 1.0}
+
+    monkeypatch.setattr(nodes, "RECURSOS", RecursosFalsos())
+    salida = classify({
+        "pregunta": "¿Qué dice el artículo 391 del Código General del Proceso?",
+        "formato": "multiple_choice",
+        "opciones": {"A": "Artículo 899 del Código de Comercio", "B": "Otra respuesta"},
+    })
+
+    assert salida["cuerpos_esperados"]
+    assert salida["cuerpos_opciones"]
+    assert [p["chunk_id"] for p in salida["lookup_hits"]] == ["codigo_general_proceso-391"]
+    assert [p["chunk_id"] for p in salida["lookup_opcion_hits"]] == ["codigo_comercio-899"]
+    assert "Artículo 899 del Código de Comercio" in salida["consulta"]
 
 
 # --- entrada ------------------------------------------------------------------------

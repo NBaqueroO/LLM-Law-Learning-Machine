@@ -14,6 +14,7 @@ pytest.importorskip("bm25s")
 faiss = pytest.importorskip("faiss")
 
 from src.generation.schemas import SalidaSemi  # noqa: E402
+from src.generation import prompts  # noqa: E402
 from src.graph import nodes, nodes_retrieval  # noqa: E402
 from src.graph.workflow import construir_grafo  # noqa: E402
 from src.official import answer_text, citas_respaldadas, citations  # noqa: E402
@@ -196,6 +197,29 @@ def test_fuse_pone_primero_lo_nombrado_y_cupo_de_juris(con_recursos):
     assert salida["score_max"] == 1.0 and len(salida["pasajes"]) <= 10
     assert any(p["chunk_id"].startswith("sentencia_") for p in salida["pasajes"])
     assert len({p["chunk_id"] for p in salida["pasajes"]}) == len(salida["pasajes"])
+
+
+def test_grafo_entrega_fuentes_separadas_y_priorizadas_al_prompt(con_recursos):
+    estado = {
+        "pregunta": "¿Qué dice el artículo 391 de la Ley 1564 de 2012 sobre contestar la demanda?",
+        "formato": "multiple_choice",
+        "area": "Derecho procesal",
+        "opciones": {"A": "Artículo 899 del Decreto 410 de 1971", "B": "Otra opción"},
+    }
+    estado.update(nodes.classify(estado))
+    salida = _buscar(estado)
+
+    por_id = {p["chunk_id"]: p for p in salida["pasajes"]}
+    assert "enunciado" in por_id["ley_1564_2012#391"]["origenes"]
+    assert "opciones" in por_id["decreto_410_1971#899"]["origenes"]
+    assert salida["pasajes"][0]["chunk_id"] == "ley_1564_2012#391"
+
+    contexto = prompts.bloque_pasajes(salida["pasajes"])
+    assert contexto.index("[1] [Código General del Proceso - Ley 1564 de 2012]") < contexto.index(
+        "Decreto 410 de 1971")
+    assert "también citado en opciones" in contexto
+    assert "Decreto 410 de 1971" in contexto
+    assert "Fuentes citadas explícitamente en el enunciado" in contexto
 
 
 def test_reformular_usa_los_codigos_del_area(con_recursos):

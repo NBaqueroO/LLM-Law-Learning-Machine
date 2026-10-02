@@ -7,7 +7,8 @@ bm25_search y vector_search corren en paralelo y dejan candidatos sin hidratar d
   2. adelante lo que la pregunta nombra ("artículo 391 del CGP", "Sentencia C-355 de 2006"),
   3. reranker sobre los primeros K_RERANK, si RERANKER está prendido,
   4. cupo de jurisprudencia (30 %, o la mitad si la pregunta es de jurisprudencia),
-  5. los lookup_hits de classify primero con score 1.0, y exactamente TOP_K pasajes.
+  5. lookup_hits del enunciado primero; las citas exactas de opciones se añaden como fuentes
+      secundarias. El resultado conserva la procedencia para explicarla en el prompt.
 
 score_max va de 0 a 1: el RRF del mejor pasaje dividido por el máximo posible (primero en todos
 los buscadores); las citas explícitas valen 1.0. Con eso UMBRAL_SCORE y PISO_ABSTENCION se leen igual
@@ -95,7 +96,10 @@ def _con_cupo(rankings: dict, texto: str) -> list[tuple[str, float]]:
 def fuse_and_rerank(state: Estado) -> Dict[str, Any]:
     """Top-K final. Las citas explícitas se buscan solo en el enunciado: las opciones de selección
     múltiple suelen nombrar normas que son distractores, y la consulta trae los códigos del área."""
-    lookup = [dict(p, score=1.0) for p in (state.get("lookup_hits") or [])]
+    lookup = [dict(p, score=1.0, origenes=["enunciado"])
+              for p in (state.get("lookup_hits") or [])]
+    lookup_opciones = [dict(p, score=0.0, origenes=["opciones"])
+                       for p in (state.get("lookup_opcion_hits") or [])]
     hallados, n_listas = [], 1
     if RECURSOS is not None:
         consulta = _consulta(state)
@@ -105,12 +109,35 @@ def fuse_and_rerank(state: Estado) -> Dict[str, Any]:
         hallados = RECURSOS.pasajes(_con_cupo(rankings, texto_citas))
         n_listas = RECURSOS.n_listas
 
-    pasajes, vistos = [], set()
-    for p in lookup + hallados:
-        if p["chunk_id"] not in vistos:
-            vistos.add(p["chunk_id"])
-            pasajes.append(p)
-    pasajes = pasajes[:TOP_K]
+    por_id = {}
+
+    def agregar(pasaje, origen, score):
+        cid = pasaje["chunk_id"]
+        if cid in por_id:
+            if origen not in por_id[cid]["origenes"]:
+                por_id[cid]["origenes"].append(origen)
+        else:
+            por_id[cid] = dict(pasaje, score=score, origenes=[origen])
+
+    for p in lookup:
+        agregar(p, "enunciado", 1.0)
+    for p in hallados:
+        agregar(p, "busqueda", p.get("score", 0.0))
+    for p in lookup_opciones:
+        agregar(p, "opciones", 0.0)
+
+    principales = [p for p in por_id.values() if "enunciado" in p["origenes"]]
+    recuperados = [p for p in por_id.values()
+                   if "busqueda" in p["origenes"] and "enunciado" not in p["origenes"]]
+    opciones = [p for p in por_id.values()
+                if "opciones" in p["origenes"] and "enunciado" not in p["origenes"]
+                and "busqueda" not in p["origenes"]]
+
+    espacios = max(0, TOP_K - len(principales))
+    reserva_opciones = min(len(opciones), max(0, espacios - min(1, len(recuperados))))
+    cupo_busqueda = max(0, TOP_K - len(principales) - reserva_opciones)
+    pasajes = principales[:TOP_K] + recuperados[:cupo_busqueda]
+    pasajes += opciones[:reserva_opciones]
 
     tope = rrf.maximo(n_listas)
     score_max = max((1.0 if p.get("score", 0.0) >= 1.0 else min(1.0, p.get("score", 0.0) / tope)

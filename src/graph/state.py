@@ -17,6 +17,7 @@ class Pasaje(TypedDict, total=False):
     articulo: Optional[str]       # None si es una sentencia
     cuerpos: list                 # citations.bodies(citations.extract(encabezado))
     score_rerank: float           # solo si RERANKER está prendido (0..1)
+    origenes: list[str]           # enunciado, búsqueda y/o opciones
 
 
 class Candidato(TypedDict):
@@ -37,11 +38,13 @@ class Estado(TypedDict, total=False):
 
     # classify (reformulate reescribe consulta y filtro_cuerpos y suma 1 a retry)
     consulta: str                 # texto que van a buscar bm25 y denso
-    cuerpos_esperados: list[tuple]  # normas que nombra la pregunta, como citations.bodies
+    cuerpos_esperados: list[tuple]  # normas citadas en el enunciado
+    cuerpos_opciones: list[tuple]   # normas citadas en las opciones; no son evidencia esperada
     retry: int                    # 0 en la primera vuelta; ruta_evidencia reformula una sola vez
 
     # recuperación: bm25_search, vector_search, fuse_and_rerank (src/graph/nodes_retrieval.py)
-    lookup_hits: list[Pasaje]     # artículos citados con número ("art. 391 del CGP"): van primero, score 1.0
+    lookup_hits: list[Pasaje]     # artículos citados en el enunciado: prioridad alta
+    lookup_opcion_hits: list[Pasaje]  # artículos citados en opciones: fuentes secundarias
     filtro_cuerpos: list[tuple]   # [] = sin filtro; en el reintento, las normas o los códigos del área
     bm25_hits: list[Candidato]    # claves separadas: bm25 y denso escriben al mismo tiempo
     dense_hits: list[Candidato]

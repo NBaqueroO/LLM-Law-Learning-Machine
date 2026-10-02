@@ -19,6 +19,7 @@ UMBRAL_CASO = 3
 
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ollama; vLLM: :8000/v1
 LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3:8b")                       # vLLM: Qwen/Qwen3-8B
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "openai").lower()               # "transformers" para un modelo local
 METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1200"))  # tope de tokens de salida por llamada
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "600"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120

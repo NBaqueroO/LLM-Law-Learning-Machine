@@ -75,11 +75,15 @@ def classify(state: Estado) -> Dict[str, Any]:
     if formato == "multiple_choice" and not opciones:
         opciones = {letra: "(ver enunciado)" for letra in "ABCD"}
 
-    # Cadena combinada para extracción y búsqueda
-    consulta = " ".join([pregunta, *opciones.values()]).strip()
-    citas_detectadas = citations.extract(consulta)
-    cuerpos_esperados = sorted(citations.bodies(citas_detectadas), key=str)
-    lookup_pasajes = _buscar_articulos_nombrados(citas_detectadas)
+    # Las opciones siguen entrando a la búsqueda, pero sus citas pueden ser distractores.
+    texto_opciones = " ".join(opciones.values())
+    consulta = " ".join([pregunta, texto_opciones]).strip()
+    citas_enunciado = citations.extract(pregunta)
+    citas_opciones = citations.extract(texto_opciones)
+    cuerpos_esperados = sorted(citations.bodies(citas_enunciado), key=str)
+    cuerpos_opciones = sorted(citations.bodies(citas_opciones), key=str)
+    lookup_pasajes = _buscar_articulos_nombrados(citas_enunciado)
+    lookup_opciones = _buscar_articulos_nombrados(citas_opciones)
     # El área viene en la pregunta: sus códigos probables entran a la búsqueda (no como filtro ni
     # como cuerpos esperados). Sin esto, "cláusula abusiva" trae el Código de Comercio y no el
     # Estatuto del Consumidor; antes solo pasaba al reformular, que casi nunca se activa.
@@ -92,7 +96,9 @@ def classify(state: Estado) -> Dict[str, Any]:
         "opciones": opciones,
         "consulta": consulta,
         "cuerpos_esperados": cuerpos_esperados,
+        "cuerpos_opciones": cuerpos_opciones,
         "lookup_hits": lookup_pasajes,
+        "lookup_opcion_hits": lookup_opciones,
         "filtro_cuerpos": [],
         "retry": 0,
         "traza": {
@@ -100,6 +106,7 @@ def classify(state: Estado) -> Dict[str, Any]:
             "formato_origen": origen_formato,
             "consultas": [consulta],
             "cuerpos_esperados": [str(c) for c in cuerpos_esperados],
+            "cuerpos_opciones": [str(c) for c in cuerpos_opciones],
         },
     }
 

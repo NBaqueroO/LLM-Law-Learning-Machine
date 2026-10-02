@@ -1,24 +1,41 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+import os
 import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
-MODEL_PATH = "./modelos/alia"
+# Ruta local en ./modelos/alia si existe, o el repositorio oficial en Hugging Face
+# - Salamandra 7B (el 7B del proyecto ALIA): "BSC-LT/salamandra-7b-instruct"
+# - ALIA 40B: "BSC-LT/ALIA-40b-instruct-2606"
+MODEL_DEFAULT = "./modelos/alia" if os.path.exists("./modelos/alia") else "BSC-LT/salamandra-7b-instruct"
+MODEL_PATH = os.environ.get("MODEL_PATH", MODEL_DEFAULT)
+USAR_4BIT = os.environ.get("USAR_4BIT", "1") == "1"
 
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.float16,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type="nf4"
-)
+print(f"Dispositivo CUDA disponible: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU detectada: {torch.cuda.get_device_name(0)}")
+    print(f"VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
-print("Cargando tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+print(f"Cargando tokenizer para: {MODEL_PATH}...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
 
-print("Cargando modelo...")
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_PATH,
-    device_map={"": 0},
-    quantization_config=bnb_config
-)
+kwargs = {
+    "device_map": "auto",
+    "trust_remote_code": True,
+}
+
+if USAR_4BIT:
+    print("Configurando cuantización 4-bit (BitsAndBytes)...")
+    kwargs["quantization_config"] = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+    )
+else:
+    print("Cargando modelo en precisión nativa bfloat16/float16...")
+    kwargs["torch_dtype"] = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+
+print(f"Cargando modelo {MODEL_PATH} en GPU...")
+model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, **kwargs)
 
 print("Modelo cargado.")
 print("Device map:", getattr(model, "hf_device_map", "No disponible (probablemente cargó completo en un solo dispositivo)"))

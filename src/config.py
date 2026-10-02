@@ -18,19 +18,19 @@ UMBRAL_CASO = 3
 
 
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ollama; vLLM: :8000/v1
-LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3:8b")                       # vLLM: Qwen/Qwen3-8B
-METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema
-LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1200"))  # tope de tokens de salida por llamada
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "600"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
-MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1500"))  # recorte de cada pasaje dentro del prompt
+LLM_MODELO = os.environ.get("LLM_MODELO", "BSC-LT/salamandra-7b-instruct")  # vLLM: BSC-LT/salamandra-7b-instruct
+METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema; "texto" si lo ignora (servidor_alia.py)
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "800"))  # tope de tokens de salida por llamada
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "400"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
+MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1200"))  # recorte de cada pasaje dentro del prompt
 MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
 MAX_ORACIONES_SEMI = 5
 MAX_ORACIONES_ANALISIS = 8
 
 
 TOP_K = 10                  # pasajes que cuentan como respaldo para el evaluador
-UMBRAL_SCORE = float(os.environ.get("UMBRAL_SCORE", "0.30"))  # debajo de esto la evidencia es "crítica" -> un reintento
-PISO_ABSTENCION = float(os.environ.get("PISO_ABSTENCION", "0.05"))  # debajo de esto, tras reintentar, el texto libre se abstiene
+UMBRAL_SCORE = float(os.environ.get("UMBRAL_SCORE", "0.95"))  # debajo de esto la evidencia es "crítica" -> un reintento
+PISO_ABSTENCION = float(os.environ.get("PISO_ABSTENCION", "0.60"))  # debajo de esto, tras reintentar, el texto libre se abstiene
 
 # Paso 3 - recuperación. El índice no es un servidor: son archivos en indices/ que
 # Recursos.cargar() (src/retrieval/resources.py) carga una vez al arrancar:

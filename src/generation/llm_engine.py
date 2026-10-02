@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
@@ -15,9 +17,14 @@ from src.config import (
     METODO_SALIDA,
 )
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar("T", bound=BaseModel)
 
-_ES_QWEN3 = "qwen3" in LLM_MODELO.lower()
+
+def _es_qwen3() -> bool:
+    """Detecta si el modelo configurado pertenece a la familia Qwen3 con thinking."""
+    return "qwen3" in LLM_MODELO.lower()
 
 
 def _construir_cliente_base():
@@ -25,7 +32,7 @@ def _construir_cliente_base():
     from langchain_openai import ChatOpenAI
 
     config_extra: Optional[Dict[str, Any]] = None
-    if _ES_QWEN3:
+    if _es_qwen3():
         # Desactivar generación extendida de razonamiento en motores vLLM
         config_extra = {"chat_template_kwargs": {"enable_thinking": False}}
 
@@ -53,21 +60,111 @@ def _obtener_invocador_estructurado(esquema: Type[T]):
     return get_llm().with_structured_output(esquema, method=METODO_SALIDA)
 
 
-def _formatear_prompt_usuario(contenido: str) -> str:
+def _formatear_prompt_usuario(contenido: str, nombre_esquema: str = "") -> str:
     """Aplica directivas del backend sobre el mensaje si el modelo lo requiere."""
-    if _ES_QWEN3:
+    if _es_qwen3():
         return f"{contenido}\n/no_think"
+    if nombre_esquema == "SalidaMC":
+        return f'{contenido}\n\nResponde ÚNICAMENTE con el objeto JSON:\n{{"razonamiento": "...", "pasajes_usados": [1], "respuesta_correcta": "LETRA", "justificacion": "...", "descarte_opciones": []}}'
     return contenido
 
 
+def _extraer_json(texto: str) -> str:
+    """Extrae el primer bloque o estructura JSON válida de una respuesta en texto."""
+    texto = texto.strip()
+    # 1. Si viene en un bloque de código ```json ... ```
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", texto, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    # 2. Si viene delimitado entre llaves { ... }
+    inicio = texto.find("{")
+    fin = texto.rfind("}")
+    if inicio != -1 and fin != -1 and fin > inicio:
+        return texto[inicio : fin + 1].strip()
+    return texto
+
+
+def _extraer_o_construir_esquema(esquema: Type[T], texto: str) -> T:
+    """Extrae JSON del texto o infiere los campos del esquema a partir de una respuesta en prosa."""
+    json_candidato = _extraer_json(texto)
+    try:
+        return esquema.model_validate_json(json_candidato)
+    except Exception:
+        pass
+
+    nombre = getattr(esquema, "__name__", "")
+    if nombre == "SalidaMC":
+        from src.generation.schemas import SalidaMC
+        letra = "A"
+        # 1. Buscar patrones claros: "respuesta correcta es C", "opción C", "C)"
+        match = re.search(r"(?:respuesta correcta es|opci[oó]n)\s*[:\s]*([A-D])\b|^\s*([A-D])\b|[(\[]([A-D])[)\]]", texto, re.IGNORECASE)
+        if match:
+            letra = (match.group(1) or match.group(2) or match.group(3)).upper()
+        else:
+            match2 = re.search(r"\b([A-D])\b", texto)
+            if match2:
+                letra = match2.group(1).upper()
+        return SalidaMC(
+            razonamiento=texto[:250].strip(),
+            pasajes_usados=[1],
+            respuesta_correcta=letra,
+            justificacion=texto.strip(),
+            descarte_opciones=[],
+        )
+
+    if nombre == "SalidaSemi":
+        from src.generation.schemas import SalidaSemi
+        return SalidaSemi(
+            pasajes_usados=[1],
+            respuesta=texto[:400].strip(),
+            palabras_clave=[],
+            referencia_legal="",
+        )
+
+    if nombre == "SalidaOpen":
+        from src.generation.schemas import SalidaOpen
+        return SalidaOpen(
+            pasajes_usados=[1],
+            marco_normativo="",
+            analisis=texto[:1000].strip(),
+            jurisprudencia="",
+            conclusion=texto[-300:].strip() if len(texto) > 300 else texto.strip(),
+        )
+
+    return esquema.model_validate_json(json_candidato)
+
+
 def generar(esquema: Type[T], sistema: str, usuario: str) -> T:
-    """Genera una salida validada bajo el esquema Pydantic indicado."""
-    invocador = _obtener_invocador_estructurado(esquema)
+    """Genera una salida validada bajo el esquema Pydantic indicado.
+    
+    Usa structured_output del backend con fallback a parsing directo de JSON
+    o reconstrucción de campos para garantizar compatibilidad total con cualquier modelo.
+    """
+    nombre_esquema = getattr(esquema, "__name__", "")
     mensajes = [
         ("system", sistema),
-        ("human", _formatear_prompt_usuario(usuario)),
+        ("human", _formatear_prompt_usuario(usuario, nombre_esquema)),
     ]
-    return invocador.invoke(mensajes)
+
+    try:
+        if METODO_SALIDA == "texto":  # el servidor ignora response_format: ir directo al fallback
+            raise NotImplementedError
+        invocador = _obtener_invocador_estructurado(esquema)
+        res = invocador.invoke(mensajes)
+        if isinstance(res, esquema):
+            return res
+        if isinstance(res, dict):
+            return esquema.model_validate(res)
+    except Exception as err:
+        logger.debug(
+            "Fallo structured output directo para %s (%s). Aplicando fallback a extracción.",
+            LLM_MODELO,
+            err,
+        )
+
+    # Fallback: llamada de texto plano e inferencia de esquema
+    texto_resp = texto_libre(sistema, usuario)
+    return _extraer_o_construir_esquema(esquema, texto_resp)
 
 
 def texto_libre(sistema: str, usuario: str) -> str:

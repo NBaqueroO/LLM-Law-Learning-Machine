@@ -9,19 +9,24 @@
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "=== 1. Verificando Python 3.12 ===" -ForegroundColor Cyan
+Write-Host "=== 1. Verificando Python (3.12 o 3.13) ===" -ForegroundColor Cyan
 $pyVersions = py -0 2>$null
-if ($pyVersions -notmatch "3\.12") {
-    Write-Host "No se encontro Python 3.12 instalado." -ForegroundColor Red
+$pyCmd = $null
+if ($pyVersions -match "3\.13") {
+    $pyCmd = "3.13"
+} elseif ($pyVersions -match "3\.12") {
+    $pyCmd = "3.12"
+} else {
+    Write-Host "No se encontro Python 3.12 ni 3.13 instalado." -ForegroundColor Red
     Write-Host "Instalalo primero, por ejemplo con: winget install Python.Python.3.12"
     exit 1
 }
 
-Write-Host "=== 2. Creando entorno virtual (.venv) con Python 3.12 ===" -ForegroundColor Cyan
+Write-Host "=== 2. Creando entorno virtual (.venv) con Python $pyCmd ===" -ForegroundColor Cyan
 if (Test-Path ".venv") {
-    Write-Host "Ya existe una carpeta .venv. Bórrala primero si quieres reinstalar desde cero." -ForegroundColor Yellow
+    Write-Host "Ya existe una carpeta .venv. Usando entorno existente." -ForegroundColor Yellow
 } else {
-    py -3.12 -m venv .venv
+    py -$pyCmd -m venv .venv
 }
 
 Write-Host "=== 3. Activando entorno virtual ===" -ForegroundColor Cyan

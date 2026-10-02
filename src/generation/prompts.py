@@ -80,7 +80,7 @@ norma o sentencia de los pasajes que la sustenta. No expliques aquí las otras o
 distinta de la elegida, sin omitir ninguna; cada motivo en una sola oración.
 
 # RESTRICCIONES DE ESTA TAREA
-- Elige siempre una opción, aunque la evidencia sea incompleta. Nunca dejes la letra vacía.
+- Abstente si se presenta falta de información importante para la validación o descarte de una respuesta
 - Lee con cuidado las negaciones y excepciones del enunciado ("NO", "excepto", "incorrecta", \
 "falsa"): si la pregunta pide la opción falsa, elige la falsa.
 - Si dos opciones parecen correctas, elige la más completa y la más fiel al texto de la norma.
@@ -221,6 +221,9 @@ _SUBTAREAS = [
     ("existencia normativa",
      r"\b(existe|hay alguna norma|esta regulad[oa]|contempla la ley)\b",
      "Responde primero sí o no, y luego indica la norma que lo regula."),
+     ("validación normativa",
+      r"\b(que version|version vigente|version aplicable|version de la norma|version de la ley)\b",
+      "Valida que si una norma tiene diversas condiciones o versiones asegura que se responda con la version que pide la pregunta."),
 ]
 _SUBTAREAS_RX = [(n, re.compile(rx), instr) for n, rx, instr in _SUBTAREAS]
 INSTRUCCION_GENERAL = ("Si la pregunta tiene varias partes, respóndelas todas, en el orden en que "
@@ -237,11 +240,12 @@ def detectar_subtarea(pregunta: str) -> tuple[str | None, str]:
     return None, INSTRUCCION_GENERAL
 
 
-def bloque_pasajes(pasajes: list[dict]) -> str:
+def bloque_pasajes(pasajes: list[dict], max_pasajes: int | None = None) -> str:
     """Numera los pasajes y recorta cada uno a MAX_CHARS_PASAJE caracteres."""
     if not pasajes:
         return "(No se recuperaron pasajes para esta pregunta.)"
-    return "\n\n".join(f"[{i}] {p['texto'][:MAX_CHARS_PASAJE]}" for i, p in enumerate(pasajes, 1))
+    seleccion = pasajes[:max_pasajes] if max_pasajes else pasajes
+    return "\n\n".join(f"[{i}] {p['texto'][:MAX_CHARS_PASAJE]}" for i, p in enumerate(seleccion, 1))
 
 
 def _area(state: dict) -> str:
@@ -251,7 +255,7 @@ def _area(state: dict) -> str:
 def mensaje_mc(state: dict) -> str:
     opciones = state["opciones"]
     return PROMPT_MC.format(
-        letras=", ".join(opciones), area=_area(state), pasajes=bloque_pasajes(state["pasajes"]),
+        letras=", ".join(opciones), area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5),
         pregunta=state["pregunta"], opciones="\n".join(f"{l}) {t}" for l, t in opciones.items()))
 
 
@@ -259,10 +263,10 @@ def mensaje_semi(state: dict) -> tuple[str, str | None]:
     subtarea, instruccion = detectar_subtarea(state["pregunta"])
     texto = PROMPT_SEMI.format(
         instruccion_subtarea=instruccion, area=_area(state),
-        pasajes=bloque_pasajes(state["pasajes"]), pregunta=state["pregunta"])
+        pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5), pregunta=state["pregunta"])
     return texto, subtarea
 
 
 def mensaje_open(state: dict) -> str:
-    return PROMPT_OPEN.format(area=_area(state), pasajes=bloque_pasajes(state["pasajes"]),
+    return PROMPT_OPEN.format(area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=6),
                               pregunta=state["pregunta"])

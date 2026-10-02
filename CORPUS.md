@@ -1,6 +1,6 @@
 # CORPUS: normas y jurisprudencia colombiana para el RAG
 
-Este documento explica **qué hay en el corpus, de dónde salió, cómo se procesó y cómo reconstruirlo idéntico en una máquina limpia**. El inventario documento por documento está en `seed_corpus.json`, y el manifest que pide el reto está en `corpus/corpus_manifest.json`. Las cifras detalladas están en `RESUMEN_DATOS.md`, que se genera con `python resumen_db.py`. La guía para usar los datos es `src/ingestion/GUIA_DATOS.md`; los scripts están en `src/ingestion/` (descarga y limpieza) y `src/indexing/` (índices).
+Este documento explica **qué hay en el corpus, de dónde salió, cómo se procesó y cómo reconstruirlo idéntico en una máquina limpia**. El inventario documento por documento está en `seed_corpus.json`, y el manifest que pide el reto está en `corpus_manifest.json`. Las cifras detalladas están en `RESUMEN_DATOS.md`, que se genera con `python resumen_db.py`. La guía para usar los datos es `src/ingestion/GUIA_DATOS.md`; los scripts están en `src/ingestion/` (descarga y limpieza) y `src/indexing/` (índices).
 
 ## 1. Inventario (2026-09-30)
 

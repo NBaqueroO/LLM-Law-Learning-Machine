@@ -1,12 +1,12 @@
 """CLI principal: corre el grafo sobre un split y escribe el JSONL de la entrega.
 
-    python main.py --split sample                       # 50 preguntas -> outputs/sample_50.jsonl (+ evaluate.py)
-    python main.py --split test --concurrencia 8        # 992 -> outputs/submissions.jsonl
-    python main.py --entrada data/test_992.jsonl --ids 247,253   # verificación en vivo
-    python main.py --split sample --ids 1 --ruta        # por qué nodos pasa la pregunta 1, en orden
-    python main.py --split sample --limite 5            # prueba rápida
-    python main.py --split test --parte 1/2             # la mitad de las preguntas, para repartir en 2 GPU
-    python main.py --split test --unir                  # junta las partes en outputs/submissions.jsonl
+    python src/main.py --split sample                       # 50 preguntas -> outputs/sample_50.jsonl (+ evaluate.py)
+    python src/main.py --split test --concurrencia 8        # 992 -> submissions.jsonl (raíz)
+    python src/main.py --entrada data/test_992.jsonl --ids 247,253   # verificación en vivo
+    python src/main.py --split sample --ids 1 --ruta        # por qué nodos pasa la pregunta 1, en orden
+    python src/main.py --split sample --limite 5            # prueba rápida
+    python src/main.py --split test --parte 1/2             # la mitad de las preguntas, para repartir en 2 GPU
+    python src/main.py --split test --unir                  # junta las partes en submissions.jsonl (raíz)
 
 Si se corta, volver a correr el mismo comando sigue donde iba.
 """
@@ -19,10 +19,15 @@ import sys
 import time
 from pathlib import Path
 
-from src.config import DATA, OUTPUTS, SAMPLE, SCRIPTS
+if __package__ in (None, ""):   # python src/main.py: la raíz del repo va al path para importar src.*
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-ENTRADAS = {"sample": SAMPLE, "test": DATA / "test.jsonl"}
-SALIDAS = {"sample": OUTPUTS / "sample_50.jsonl", "test": OUTPUTS / "submissions.jsonl"}
+from src.config import DATA, OUTPUTS, RAIZ, SAMPLE, SCRIPTS
+
+# el sábado las preguntas llegan como test_992.jsonl (así lo nombra el esquema); test.jsonl también sirve
+ENTRADAS = {"sample": SAMPLE,
+            "test": next((p for p in (DATA / "test_992.jsonl", DATA / "test.jsonl") if p.exists()), DATA / "test_992.jsonl")}
+SALIDAS = {"sample": OUTPUTS / "sample_50.jsonl", "test": RAIZ / "submissions.jsonl"}   # entregable en la raíz
 
 
 def leer(ruta: Path) -> list[dict]:

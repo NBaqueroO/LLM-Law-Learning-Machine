@@ -21,6 +21,8 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ol
 LLM_MODELO = os.environ.get("LLM_MODELO", "qwen3:8b")                       # vLLM: Qwen/Qwen3-8B
 METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1200"))  # tope de tokens de salida por llamada
+PENSAR_MC = os.environ.get("PENSAR_MC", "0") == "1"              # "1": en cerradas, Qwen3 piensa antes de responder (más lento)
+PENSAR_MAX_TOKENS = int(os.environ.get("PENSAR_MAX_TOKENS", "3000"))  # tope del pensamiento + análisis (con CONTEXTO 12288)
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "600"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
 MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1500"))  # recorte de cada pasaje dentro del prompt
 MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
@@ -45,7 +47,7 @@ INDEX_JURIS = Path(os.environ.get("INDEX_JURIS", INDICES / "index_juris"))
 INDEX_MANIFEST = Path(os.environ.get("INDEX_MANIFEST", INDICES / "index_manifest.json"))
 
 ENCODER = os.environ.get("ENCODER", "BAAI/bge-m3")          # el del índice entregado; debe coincidir con el manifiesto
-RERANKER = os.environ.get("RERANKER", "")                    # "BAAI/bge-reranker-v2-m3" para prenderlo; vacío = sin reranker
+RERANKER = os.environ.get("RERANKER", "")                    # "BAAI/bge-reranker-v2-m3" o "tomaarsen/Qwen3-Reranker-0.6B-seq-cls"; vacío = sin reranker
 DISPOSITIVO = os.environ.get("DISPOSITIVO") or None          # None = GPU si hay; "cpu" si el LLM ocupa toda la GPU
 
 K_CANDIDATOS = int(os.environ.get("K_CANDIDATOS", "50"))  # candidatos por buscador (BM25 y denso) en cada índice

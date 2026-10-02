@@ -24,6 +24,9 @@ import argparse, json, sqlite3, sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from indexar import nombre_codigo
+
 AQUI = Path(__file__).resolve().parent
 # donde puede estar citations.py del kit: carpeta del reto, raiz del repo del equipo o al lado
 RUTAS_KIT = [AQUI, AQUI / "scripts", AQUI.parent / "reto" / "scripts", AQUI.parent / "scripts",
@@ -69,6 +72,10 @@ def cuerpos_del_corpus(C, db):
     for doc_id, norma, tipo, numero, anio in filas:
         extra = f"Sentencia {numero} de {anio}" if tipo.upper() == "SENTENCIA" else f"{tipo} {numero} de {anio}"
         bs = cuerpos(C, norma) | (cuerpos(C, extra) if numero and anio else set())
+        # "Ley 84 de 1873" es el Codigo Civil: las preguntas lo citan por nombre
+        codigo = nombre_codigo(tipo, numero, anio)
+        if codigo:
+            bs |= cuerpos(C, codigo)
         del_doc[doc_id] = bs
         for b in bs:
             por_cuerpo.setdefault(b, set()).add(doc_id)

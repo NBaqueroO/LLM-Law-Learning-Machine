@@ -7,9 +7,9 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from src.config import AREA_EN_CONSULTA, CITAR_RECUPERADAS, MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, SCHEMA, TOP_K
+from src.config import AREA_EN_CONSULTA, CITAR_RECUPERADAS, PENSAR_MC, MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI, MAX_PALABRAS_SEMI, SCHEMA, TOP_K
 from src.generation import prompts
-from src.generation.llm_engine import generar
+from src.generation.llm_engine import generar, pensar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
 from src.graph import nodes_retrieval
 from src.guards import abstention_policy, citation_builder, citation_verifier
@@ -180,19 +180,36 @@ def _ejecutar_generacion(
         return None, repr(exc)
 
 
+def _analizar_mc(state: Estado) -> Tuple[str, Optional[str]]:
+    """Con PENSAR_MC: Qwen3 razona en modo pensamiento y concluye una letra. ("", error) si falla."""
+    try:
+        return pensar(prompts.SISTEMA, prompts.mensaje_mc(state) + prompts.PEDIR_ANALISIS_MC), None
+    except Exception as exc:
+        logger.warning("Fallo el análisis previo de la cerrada: %s", exc)
+        return "", repr(exc)
+
+
 def generate_mc(state: Estado) -> Dict[str, Any]:
     """Genera respuesta para preguntas cerradas con justificación y descarte de distractores."""
     opciones = state["opciones"]
-    resultado, error = _ejecutar_generacion(SalidaMC, prompts.mensaje_mc(state))
+    analisis, letra_pensada, extra_traza = "", "", {}
+    if PENSAR_MC:
+        analisis, error_analisis = _analizar_mc(state)
+        letra_pensada = prompts.letra_del_analisis(analisis)
+        extra_traza = {"letra_pensada": letra_pensada, "error_analisis": error_analisis}
+    mensaje = prompts.mensaje_mc_con_analisis(state, analisis) if analisis else prompts.mensaje_mc(state)
+    resultado, error = _ejecutar_generacion(SalidaMC, mensaje)
 
     if resultado is None:
         return {
             "salida": {},
             "usados": [],
-            "traza": _actualizar_traza(state, error_generacion=f"mc: {error}"),
+            "traza": _actualizar_traza(state, error_generacion=f"mc: {error}", **extra_traza),
         }
 
     letra_candidata = resultado.respuesta_correcta.strip().upper()[:1]
+    if letra_pensada in opciones:   # la letra que salió de pensar manda sobre la del JSON
+        letra_candidata = letra_pensada
     respuesta_correcta = letra_candidata if letra_candidata in opciones else ""
 
     descarte = {}
@@ -214,7 +231,7 @@ def generate_mc(state: Estado) -> Dict[str, Any]:
             "descarte_opciones": descarte,
         },
         "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
-        "traza": _actualizar_traza(state, razonamiento_mc=_limpiar(resultado.razonamiento)),
+        "traza": _actualizar_traza(state, razonamiento_mc=_limpiar(resultado.razonamiento), **extra_traza),
     }
 
 

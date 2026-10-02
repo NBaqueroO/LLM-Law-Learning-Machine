@@ -1,6 +1,9 @@
 # Guía del equipo: repo, Drive y notebook
 
-Estado al 2026-10-01, rama `integracion` (sale de `graph_development`).
+Estado al 2026-10-02, rama **`entrega`** (la estructura que pide el reto; `integracion` queda como historia).
+**Corpus ampliado (2026-10-01):** barrido de la Corte Constitucional (SU 452, T 3.244 filtradas por tema, C 2.784) y 23 leyes nuevas;
+índices `index_juris` (653.470 fragmentos) e `index_sin_sentencias` (129.102), ambos con bge-m3. Recuperación híbrida en `sample_50`:
+28/40 en el top-10 y 24/40 en el top-3 (antes 27 y 24). Qwen3-Embedding se probó y bajó el top-3 a 22/40: no se usa.
 **Mejor resultado medido:** 49,75/80 en `sample_50`, contra 47,05 del sistema anterior (`agentes.ipynb`).
 
 Si solo tienes 5 minutos, lee la sección 3 (cómo correrlo) y la 5 (qué se puede tocar).
@@ -12,11 +15,16 @@ Si solo tienes 5 minutos, lee la sección 3 (cómo correrlo) y la 5 (qué se pue
 ### El repo
 
 ```
-main.py                     corre el grafo sobre un split y escribe el JSONL de la entrega
-run.sh                      todo en un comando (dependencias, índices, Ollama, main, evaluación)
+README.md                   entregable: arquitectura, reproducción, resultados, formatos (plantilla oficial)
+LICENSE                     MIT para el código (el corpus va con CC BY 4.0 dentro de su zip)
 requirements.txt            dependencias (requirements-gpu.txt: vLLM opcional)
-README.md, GUIA_EQUIPO.md   resumen corto y esta guía
-corpus/CORPUS.md            bitácora del corpus (entregable): inventario, criterio, fuentes, método
+submissions.jsonl           las 992 respuestas (se genera el sábado con src/main.py --split test)
+CORPUS.md                   bitácora del corpus (entregable): inventario, criterio, fuentes, método
+corpus_manifest.json        manifiesto del corpus (entregable; lo escribe exportar_entrega.py)
+informe/INFORME_TECNICO.md  borrador del informe (se exporta a INFORME_TECNICO.pdf, máximo 3 páginas)
+interfaz/app.py             interfaz gráfica (Gradio): una pregunta o un lote JSONL
+run.sh, Dockerfile          todo en un comando (dependencias, índices, Ollama, main, evaluación)
+GUIA_EQUIPO.md              esta guía (interna)
 data/sample_50.jsonl        las 50 preguntas de práctica (solo para medir: nunca se indexan)
 schema/                     esquema oficial de cada línea de la entrega
 scripts/                    kit oficial del reto (evaluate.py, citations.py): NO SE TOCA
@@ -24,6 +32,7 @@ notebooks/
   colab_pipeline.ipynb      correr todo en Colab con Drive (el que se usa)
   vectorial.ipynb           armar los vectores bge-m3 en GPU (ya están hechos)
 src/
+  main.py                   corre el grafo sobre un split y escribe el JSONL de la entrega
   config.py                 TODAS las perillas (rutas, modelo, umbrales); casi todas se cambian por variable de entorno
   runner.py                 el lote: paralelo, reanudable, una línea por pregunta aunque falle
   query/classifier.py       detecta formato y opciones de la pregunta
@@ -38,7 +47,7 @@ src/
   retrieval/                acceso a los índices (resources.py), RRF, reranker, buscador
   indexing/                 construir índices (build_index.py + index_manifest.json), evaluar recuperación
   ingestion/                descargar y limpiar el corpus (SUIN, Senado, Función Pública, relatorías)
-tests/                      85 pruebas con datos de juguete (no necesitan GPU ni el corpus)
+tests/                      91 pruebas con datos de juguete (no necesitan GPU ni el corpus)
 ```
 
 ### El Drive (`MyDrive/hackathon_vectorial`)
@@ -88,7 +97,7 @@ classify ──┬── bm25_search ──┐
 | prune_and_verify | `guards/citation_verifier.py` | quita toda cita que no esté en los 10 pasajes, con las mismas funciones del jurado |
 | build_submission | `nodes.py` | arma la línea y la valida contra `schema/` |
 
-Para verlo con una pregunta real: `python main.py --split sample --ids 60 --ruta` imprime cada nodo
+Para verlo con una pregunta real: `python src/main.py --split sample --ids 60 --ruta` imprime cada nodo
 y lo que dejó. `tests/test_arquitectura.py` falla si alguien cambia una arista del diagrama.
 
 ---
@@ -116,14 +125,14 @@ y lo que dejó. `tests/test_arquitectura.py` falla si alguien cambia una arista 
 ### En tu PC (solo para probar el código)
 ```
 pip install -r requirements.txt
-python -m pytest tests -q          # 85 passed
+python -m pytest tests -q          # 91 passed
 ```
 Correr las preguntas en un PC necesita los índices en `indices/` y Ollama con `qwen3:8b-q8_0`:
 `bash run.sh` (Linux/WSL) hace todo; ver los comentarios al inicio de `run.sh`.
 
 ### Subir cambios
 ```
-git checkout integracion
+git checkout final
 git add -A ; git commit -m "qué cambié" ; git push
 ```
 El notebook siempre corre lo que está en GitHub en la rama `RAMA`. **Si cambias código, haz push
@@ -141,13 +150,17 @@ y vuelve a correr la celda 2** antes de medir.
 | 4. Decoder | instala Ollama, baja el modelo a Drive, prueba una respuesta | No |
 | 5. Pruebas | pytest (deben pasar todas) | No |
 | 6. Arquitectura | dibuja el grafo y muestra el recorrido de la primera pregunta | No (opcional) |
-| 7. main.py | responde las preguntas; **si se corta, vuelve a correrla y sigue donde iba** | No |
+| 7. src/main.py | responde las preguntas; **si se corta, vuelve a correrla y sigue donde iba** | No |
 | 8. Evaluador oficial | puntaje (con juez si `USAR_JUEZ`) | No |
+| 9. Tabla de experimentos | junta todas las corridas de `entregas_grafo/` con sus ajustes (y la deja en `experimentos.md`) | No |
+| 10. Interfaz gráfica | abre `interfaz/app.py` con un enlace público temporal | No |
+| 11. Comparar rerankers | solo búsqueda, sin LLM: cuántas normas de la referencia llegan al top-10 con cada reranker | La lista `RERANKERS` |
+| 12. Comparar modelos | `sample_50` con cada decoder de `MODELOS` (para dejar corriendo) | La lista `MODELOS` |
 
 ### Celda 1: qué significa cada cosa
 | Variable | Valor | Para qué |
 |---|---|---|
-| `RAMA` | `"integracion"` | la rama de GitHub que se corre |
+| `RAMA` | `"entrega"` | la rama de GitHub que se corre |
 | `MODELO` | `"qwen3:8b-q8_0"` | Q8 dio 47,05 y Q4 (`"qwen3:8b"`) 44,36 en el sistema anterior: dejar Q8 |
 | `CONTEXTO` | `8192` | tokens de Ollama; con menos, 10 pasajes no caben. No bajar |
 | `PARALELO` | `4` | preguntas a la vez. En L4 se puede probar 6 u 8 si no hay timeouts |
@@ -157,7 +170,7 @@ y vuelve a correr la celda 2** antes de medir.
 | `EXPERIMENTO` | `"base"` | **cámbialo en cada prueba** (`"umbral05"`, `"reranker"`…): va en el nombre del resultado en Drive |
 | `AJUSTES` | `{...}` | ver sección 5. Vacío = valor del repo |
 
-**Antes de volver a medir** con otra configuración, borra la salida anterior (si no, `main.py` cree que
+**Antes de volver a medir** con otra configuración, borra la salida anterior (si no, `src/main.py` cree que
 ya respondió y no repite nada):
 ```python
 for f in ["outputs/sample_50.jsonl", "outputs/sample_50.trazas.jsonl"]:
@@ -175,10 +188,12 @@ for f in ["outputs/sample_50.jsonl", "outputs/sample_50.trazas.jsonl"]:
 | `PISO_ABSTENCION` | 0.05 | debajo, tras reformular, el texto libre se abstiene | siempre ≤ `UMBRAL_SCORE` (si no, se abstiene sin reformular). Probar 0.7-0.8 con el umbral en 0.95. Abstenerse vale 0,5 y equivocarse 0 en ese componente, pero se pierden las citas y el juez de esa pregunta |
 | `CUPO_JURIS` | 0.3 | parte del top-10 para sentencias | 0.2 si las respuestas se llenan de sentencias y pierden la norma |
 | `K_CANDIDATOS` | 50 | candidatos por buscador | 100 es más lento y casi igual |
-| `RERANKER` | (vacío) | cross-encoder sobre los 40 primeros | `"BAAI/bge-reranker-v2-m3"`: en la medición de recuperación no mejoró (26/40 vs 27/40) y es 2× más lento |
+| `RERANKER` | (vacío) | cross-encoder sobre los 40 primeros | `"BAAI/bge-reranker-v2-m3"` no mejoró (26/40 vs 27/40) y es 2× más lento. Probar `"tomaarsen/Qwen3-Reranker-0.6B-seq-cls"` primero en la celda *Comparar rerankers* (solo búsqueda, minutos) |
 | `AREA_EN_CONSULTA` | 0 | suma los códigos del área a la 1.ª búsqueda | con "1" dio 47,75: bajaron cerradas (10/15) y juez (0,37); queda apagado |
 | `CITAR_RECUPERADAS` | 1 | cita también las normas del top-10 que el modelo no nombró | `"0"` para comparar (simulado: +1,5) |
 | `PROMPT_EVALUACION` | 0 | le explica al modelo cómo se califica (letra, juez experto, citas) | probar `"1"` después de la corrida "citar", una cosa a la vez |
+| `PENSAR_MC` | 0 | en cerradas, Qwen3 razona (modo pensamiento) antes del JSON; la letra que concluye manda | `"1"`: lo que más puede subir las cerradas. Más lento: el notebook sube `CONTEXTO` a 12288 solo |
+| `PENSAR_MAX_TOKENS` | 3000 | tope del razonamiento de cada cerrada | si `letra_pensada` sale vacía en las trazas, subirlo |
 | `LLM_MAX_TOKENS` | 1200 | tope de la respuesta | subir solo si las abiertas salen cortadas |
 | `LLM_TIMEOUT` | 600 | segundos por llamada, incluida la cola | si aparecen "Request timed out", subirlo o bajar `PARALELO` |
 
@@ -188,7 +203,8 @@ Otras cosas que se pueden mejorar en código (con push):
 - **Señal de confianza** (`score_max` en `fuse_and_rerank`): hoy no separa bien las preguntas fáciles de las difíciles.
 
 **Cómo experimentar:** cambia **una** cosa a la vez, ponle nombre en `EXPERIMENTO`, borra la salida,
-corre y compara el `.eval.json` en `entregas_grafo/`. Ojo: el juez (corrección) varía entre corridas
+corre y compara en la celda *Tabla de experimentos*, que junta todos los `.eval.json` de `entregas_grafo/`
+con sus ajustes. Ojo: el juez (corrección) varía entre corridas
 (±1 punto es ruido); las otras tres partes son deterministas.
 
 ### Lo que NO se toca
@@ -237,7 +253,7 @@ Velocidad: 26 s por pregunta con 4 a la vez. Archivos: `entregas_grafo/20261001_
    abiertas 347 vs 324). La baja del juez (0,41 vs 0,46) son ~2 preguntas de 35: puede ser ruido del
    juez o respuestas que eligen otra sentencia (la 453 contesta C-666/2010 en vez de C-468/2024).
 4. **Velocidad:** con 120 s de timeout se cortaban preguntas (quedaban en abstención). Ya está en 600 s
-   y, al volver a correr, `main.py` rehace las que fallaron.
+   y, al volver a correr, `src/main.py` rehace las que fallaron.
 
 ### Siguientes pasos, en orden
 1. Correr `sample` con el repo actual (`EXPERIMENTO = "citar_area"`) y confirmar el ≈51.
@@ -261,7 +277,7 @@ La celda *Comparar modelos* corre `sample_50` con cada modelo de `MODELOS` (Qwen
 Qwen2.5 7B, Aya Expanse 8B y Salamandra 7B, del BSC) y deja en `entregas_grafo/modelos/` las respuestas,
 el puntaje de cada uno y `resumen.md` con la tabla. ~30 min por modelo. Para correrla sin repetir el
 `sample` normal: ejecuta las celdas 1 a 4 y después solo la última. Si Colab se desconecta, repite lo
-mismo: salta los modelos que ya tienen puntaje. Las reglas piden modelos abiertos de hasta 8B: Aya
+mismo: salta los modelos que ya tienen puntaje. Las reglas piden "un modelo abierto de tamaño reducido" (hasta 8B, según lo que anotamos del enunciado): Aya
 Expanse tiene licencia no comercial, confirmar que se acepta antes de usarlo en la entrega.
 
 ### Resultado de la comparación (noche del 2026-10-01, L4, mismo grafo)
@@ -280,18 +296,37 @@ Expanse tiene licencia no comercial, confirmar que se acepta antes de usarlo en 
 - **Velocidad:** Qwen3 tardó 17 s por pregunta (992 preguntas ≈ 4,7 h con 4 a la vez: cabe en las 6 h
   del sábado con una GPU, pero sin margen; mejor 2). Los otros son ~2,5 veces más rápidos.
 
+### Corridas del 2026-10-01 en la tarde
+| Experimento | Total | Cerradas | Citas | Abst. | Juez | Qué cambió |
+|---|---|---|---|---|---|---|
+| citar_area | 47,75 | 10/15 | 15,92 | – | 0,369 | `AREA_EN_CONSULTA` + `CITAR_RECUPERADAS` (el área estorbó: apagada) |
+| citar_prompt | 49,24 | 11/15 | 13,88 | 7,44 | 0,442 | 5 cosas a la vez: `PROMPT_EVALUACION`, umbral 0.45, piso 0.30, K 30, reranker bge. El juez subió (¿prompt?) y las citas bajaron (¿reranker?): no se puede separar |
+
+**Siguiente, una cosa a la vez:** `prompt` (solo `PROMPT_EVALUACION=1`), luego `pensar` (+ `PENSAR_MC=1`),
+luego el reranker Qwen3 si gana en *Comparar rerankers*.
+
+---
+
+## 6b. Interfaz gráfica y formatos
+
+- **Interfaz:** `python interfaz/app.py` (en Colab, la celda 10). Pestaña *Una pregunta*: respuesta,
+  citas, los 10 pasajes, el recorrido por los nodos y el JSON de la entrega. Pestaña *Lote JSONL*: sube
+  preguntas y descarga `submissions.jsonl`. Los colores están en `COLORES` al inicio de `app.py`:
+  **pendiente ponerlos con la identidad visual de Software Colombia** (lo pide el entregable 8).
+- **Formatos de entrada y salida:** sección *Formato de entrada y salida* del `README.md`.
+
 ---
 
 ## 7. El sábado (992 preguntas, 09:00 a 15:00)
 
 - A 26 s por pregunta son ~7 h en una GPU: **no alcanza**. Usar 2 cuentas/GPU:
   en una `ARGS_EXTRA += ["--parte", "1/2"]`, en la otra `["--parte", "2/2"]`, con `SPLIT = "test"`.
-  Cada una escribe `outputs/submissions.parte1de2.jsonl` / `parte2de2`.
-- Al final, en una sola: copiar las dos partes a `outputs/` y `python main.py --split test --unir`
-  → `outputs/submissions.jsonl` en el orden de la entrada.
-- Poner el archivo de preguntas en `data/test.jsonl` (o pasar `--entrada`).
+  Cada una escribe `submissions.parte1de2.jsonl` / `parte2de2` en la raíz del repo.
+- Al final, en una sola: copiar las dos partes a la raíz y `python src/main.py --split test --unir`
+  → `submissions.jsonl` (raíz) en el orden de la entrada. Ese es el entregable: commit y push.
+- Poner el archivo de preguntas en `data/test_992.jsonl` (o `data/test.jsonl`, o pasar `--entrada`).
 - Si se corta: volver a correr la celda 7; sigue donde iba y rehace las que fallaron.
-- Verificación en vivo de una pregunta: `python main.py --split test --ids 247 --ruta`.
+- Verificación en vivo de una pregunta: `python src/main.py --split test --ids 247 --ruta`.
 
 ---
 
@@ -307,4 +342,4 @@ Expanse tiene licencia no comercial, confirmar que se acepta antes de usarlo en 
 | "unauthenticated requests to the HF Hub" | sin `HF_TOKEN` | ignorar: solo hace más lenta la descarga de bge-m3 |
 | "no se pueden mezclar" al cargar recursos | `ENCODER` distinto al del índice | dejar `BAAI/bge-m3` |
 | Colab dice que no usa la GPU | entorno sin GPU | *Cambiar tipo de entorno → L4* y reiniciar |
-| `main.py` dice "ya estaban 50" y no hace nada | ya existe la salida | borrar `outputs/sample_50*.jsonl` (sección 4) |
+| `src/main.py` dice "ya estaban 50" y no hace nada | ya existe la salida | borrar `outputs/sample_50*.jsonl` (sección 4) |

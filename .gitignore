@@ -54,3 +54,5 @@ outputs/*.trazas.jsonl
 outputs/*.jsonl
 data/seed/
 .pytest_cache/
+submissions.parte*.jsonl
+submissions*.trazas.jsonl

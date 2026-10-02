@@ -2,7 +2,7 @@
 # Reproducción en un solo comando (componente de reproducibilidad).
 #
 #   bash run.sh                       # sample_50 con Ollama + qwen3:8b-q8_0, y evaluate.py
-#   SPLIT=test bash run.sh            # las 992 -> outputs/submissions.jsonl
+#   SPLIT=test bash run.sh            # las 992 -> submissions.jsonl (raíz)
 #
 # Variables (todas opcionales):
 #   INDICES_ZIP_URL  enlace (Drive o http) del zip con corpus.db, index_sin_sentencias/, index_juris/
@@ -62,4 +62,4 @@ case "$SERVIDOR" in
 esac
 
 echo "== 4. respuestas ($SPLIT)"
-python main.py --split "$SPLIT" --concurrencia "$CONCURRENCIA"    # con sample corre evaluate.py al final
+python src/main.py --split "$SPLIT" --concurrencia "$CONCURRENCIA"    # con sample corre evaluate.py al final

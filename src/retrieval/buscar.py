@@ -54,10 +54,8 @@ class Buscador:
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
         if isinstance(reranker, str):
-            from sentence_transformers import CrossEncoder
-            reranker = CrossEncoder(reranker, device=device, max_length=512)
-            if device.startswith("cuda"):
-                reranker.model.half()
+            from reranker import Reranker   # pone la plantilla que pida el modelo (Qwen3-Reranker)
+            reranker = Reranker(reranker, device)
         self.reranker, self.n_rerank = reranker, n_rerank
         self.juris = Buscador(db, index_juris, usar_denso, device, reranker=reranker, n_rerank=n_rerank) \
             if index_juris else None
@@ -182,7 +180,7 @@ class Buscador:
                 pasajes.append(f"{r[0] or ''} - {r[1] or ''}: {(r[2] or '')[:1500]}" if r else "")
         finally:
             con.close()
-        notas = self.reranker.predict([(consulta, t) for t in pasajes], batch_size=8, show_progress_bar=False)
+        notas = self.reranker.puntuar(consulta, pasajes)
         return [i for _, _, i in sorted(zip([-float(x) for x in notas], range(len(posiciones)), posiciones))]
 
     def _hidratar(self, chunk_ids, puntajes):

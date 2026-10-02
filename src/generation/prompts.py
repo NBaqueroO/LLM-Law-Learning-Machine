@@ -255,6 +255,28 @@ def mensaje_mc(state: dict) -> str:
         pregunta=state["pregunta"], opciones="\n".join(f"{l}) {t}" for l, t in opciones.items()))
 
 
+# Con PENSAR_MC=1: primero una llamada que razona (modo pensamiento) y termina con la letra; luego la
+# llamada estructurada de siempre recibe ese análisis.
+PEDIR_ANALISIS_MC = """
+
+# ANTES DEL JSON
+Ahora no devuelvas JSON. Analiza la pregunta: identifica qué exige (y si pide la opción falsa o la \
+excepción), busca en los pasajes la norma aplicable y compara cada opción, palabra por palabra, con \
+el texto de esa norma. Termina con una línea exacta: "Respuesta: X", donde X es la letra elegida."""
+
+_LETRA_ANALISIS = re.compile(r"Respuesta\s*:\s*\(?([A-Za-z])\)?", re.I)
+
+
+def letra_del_analisis(analisis: str) -> str:
+    hallados = _LETRA_ANALISIS.findall(analisis or "")
+    return hallados[-1].upper() if hallados else ""
+
+
+def mensaje_mc_con_analisis(state: dict, analisis: str) -> str:
+    return (mensaje_mc(state) + "\n\n# ANÁLISIS PREVIO (tuyo)\n" + analisis.strip()
+            + "\n\nDevuelve ahora el JSON, coherente con la letra que concluye este análisis.")
+
+
 def mensaje_semi(state: dict) -> tuple[str, str | None]:
     subtarea, instruccion = detectar_subtarea(state["pregunta"])
     texto = PROMPT_SEMI.format(

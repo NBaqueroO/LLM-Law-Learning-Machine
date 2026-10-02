@@ -130,8 +130,37 @@ def nombre_codigo(tipo, numero, anio):
     return next((v for (ct, cn, ca), v in CODIGOS.items() if t.startswith(ct) and n == cn and str(anio) == ca), None)
 
 
+def leer_temas(ruta):
+    """Una frase por linea (sin importar tildes ni mayusculas); # para comentarios."""
+    temas = [normalizar(l.split("#")[0].strip()) for l in open(ruta, encoding="utf-8")]
+    return [t for t in temas if t]
+
+
+def t_fuera_de_tema(con, elegidos, temas, n_chars=3000):
+    """Sentencias T del barrido (items_del_banco vacio) cuyo comienzo (referencia, partes,
+    sintesis de la decision) no menciona ninguno de los temas. Las del seed, C y SU nunca salen."""
+    # palabra completa: "marca" no debe pegar en "enmarca" ni "dian" en "meridiano"
+    patron = re.compile(r"\b(?:" + "|".join(re.escape(t) for t in temas) + r")\w*")
+    fuera = set()
+    docs = con.execute("SELECT doc_id FROM documentos WHERE tipo = 'SENTENCIA' AND items_del_banco IS NULL "
+                       "AND UPPER(numero) LIKE 'T-%'").fetchall()
+    for (doc_id,) in docs:
+        if doc_id not in elegidos:
+            continue
+        inicio, total = [], 0
+        for (t,) in con.execute("SELECT texto FROM chunks WHERE doc_id = ? ORDER BY rowid", (doc_id,)):
+            inicio.append(t or "")
+            total += len(t or "")
+            if total >= n_chars:
+                break
+        texto = normalizar(" ".join(inicio)[:n_chars])
+        if not patron.search(texto):
+            fuera.add(doc_id)
+    return fuera
+
+
 def cargar_chunks(ruta_db, sin_decretos_extra=False, con_duplicados=False, sin_sentencias_extra=False,
-                  solo_sentencias=False, sin_leyes_ruido=False, con_nombre_codigo=False):
+                  solo_sentencias=False, sin_leyes_ruido=False, con_nombre_codigo=False, temas_t=None):
     """Devuelve lista de (chunk_id, texto_para_indexar), solo de documentos 'ok'.
     Orden estable por chunk_id para que los vectores queden alineados.
     Salvo con_duplicados: una sola copia por norma y por texto identico dentro de un mismo
@@ -145,6 +174,10 @@ def cargar_chunks(ruta_db, sin_decretos_extra=False, con_duplicados=False, sin_s
         if ruido:
             print(f"fuera del indice: {len(ruido)} leyes de honores, conmemoraciones o presupuesto")
         elegidos -= ruido
+        if temas_t:
+            fuera = t_fuera_de_tema(con, elegidos, temas_t)
+            print(f"fuera del indice: {len(fuera)} sentencias T del barrido sin ninguno de los temas de --temas-t")
+            elegidos -= fuera
         sql = ("SELECT c.chunk_id, c.doc_id, c.texto, c.etiqueta, d.norma, d.tipo, d.numero, d.anio FROM chunks c "
                "JOIN documentos d ON d.doc_id = c.doc_id "
                "WHERE d.estado = 'ok' "
@@ -247,40 +280,78 @@ def construir_denso(textos, out, modelo, batch, shard, max_len, device):
     return ensamblar_faiss(out, n_sh)
 
 
-def denso_incremental(ids, textos, previos, out, modelo, batch, max_len, device):
+def denso_incremental(ids, textos, previos, out, modelo, batch, max_len, device, shard=5000):
     """Reusa los vectores de los chunk_id que ya estaban y embebe solo los nuevos.
     Supone que el texto de un chunk_id viejo no cambio (si se re-limpio el corpus, reindexar
-    completo, sin --incremental)."""
-    import faiss
+    completo, sin --incremental). Cuida la RAM (Colab tiene 12 GB): la matriz final va a un
+    archivo en disco local (memmap), los vectores viejos se sueltan apenas se copian y FAISS
+    se llena por pedazos."""
+    import faiss, tempfile
     ids_viejos, emb_viejos = previos
+    previos.clear()  # que main no siga reteniendo los vectores viejos
+    dim = emb_viejos.shape[1]
     fila = {c: i for i, c in enumerate(ids_viejos)}
+    del ids_viejos
     nuevos = [i for i, c in enumerate(ids) if c not in fila]
     print(f"  {len(ids) - len(nuevos)} vectores reusados, {len(nuevos)} chunks nuevos para embeber")
-    emb = np.zeros((len(ids), emb_viejos.shape[1]), dtype=np.float32)
+    ruta_tmp = os.path.join(tempfile.gettempdir(), f"emb_incremental_{os.getpid()}.npy")
+    emb = np.lib.format.open_memmap(ruta_tmp, mode="w+", dtype=np.float32, shape=(len(ids), dim))
     for i, c in enumerate(ids):
         if c in fila:
             emb[i] = emb_viejos[fila[c]]
+    del emb_viejos, fila
     if nuevos:
         from sentence_transformers import SentenceTransformer
         import torch
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        st = SentenceTransformer(modelo, device=device)
-        st.max_seq_length = max_len
-        if device == "cuda":
-            st.half()
-        pre = prefijo_pasaje(modelo)
-        v = st.encode([pre + textos[i] for i in nuevos], batch_size=batch, normalize_embeddings=True,
-                      show_progress_bar=True, convert_to_numpy=True).astype(np.float32)
-        if v.shape[1] != emb.shape[1]:
-            raise SystemExit(f"el indice viejo es de dimension {emb.shape[1]} y {modelo} da {v.shape[1]}: "
-                             "reindexa completo sin --incremental")
-        emb[nuevos] = v
-    index = faiss.IndexFlatIP(emb.shape[1])
-    index.add(emb)
+        # por shards en emb_nuevos/: si la sesion se cae, al repetir el comando retoma
+        dir_n = os.path.join(out, "emb_nuevos")
+        marca = os.path.join(dir_n, "marca.txt")
+        firma = f"{len(nuevos)} {shard} {ids[nuevos[0]]} {ids[nuevos[-1]]}"
+        if os.path.exists(marca) and open(marca).read().strip() != firma:
+            import shutil
+            shutil.rmtree(dir_n)
+        os.makedirs(dir_n, exist_ok=True)
+        open(marca, "w").write(firma)
+        n_sh = (len(nuevos) + shard - 1) // shard
+        pendientes = [s for s in range(n_sh) if not os.path.exists(os.path.join(dir_n, f"{s:05d}.npy"))]
+        if len(pendientes) < n_sh:
+            print(f"  retomando: {n_sh - len(pendientes)}/{n_sh} shards ya estaban hechos")
+        if pendientes:
+            st = SentenceTransformer(modelo, device=device)
+            st.max_seq_length = max_len
+            if device == "cuda":
+                st.half()
+            pre = prefijo_pasaje(modelo)
+            t0 = time.time()
+            for k, s in enumerate(pendientes, 1):
+                ruta = os.path.join(dir_n, f"{s:05d}.npy")
+                lote = [pre + textos[i] for i in nuevos[s * shard:(s + 1) * shard]]
+                e = st.encode(lote, batch_size=batch, normalize_embeddings=True,
+                              show_progress_bar=False, convert_to_numpy=True).astype(np.float32)
+                np.save(ruta + ".tmp.npy", e)
+                os.replace(ruta + ".tmp.npy", ruta)
+                print(f"  shard nuevo {s + 1}/{n_sh}, faltan unos "
+                      f"{(time.time() - t0) / k * (len(pendientes) - k) / 60:.0f} min", flush=True)
+            del st
+            if device == "cuda":
+                torch.cuda.empty_cache()
+        for s in range(n_sh):
+            v = np.load(os.path.join(dir_n, f"{s:05d}.npy"))
+            if v.shape[1] != dim:
+                raise SystemExit(f"el indice viejo es de dimension {dim} y {modelo} da {v.shape[1]}: "
+                                 "reindexa completo sin --incremental")
+            emb[nuevos[s * shard:(s + 1) * shard]] = v
+    emb.flush()
+    index = faiss.IndexFlatIP(dim)
+    for i in range(0, len(ids), 50000):
+        index.add(np.ascontiguousarray(emb[i:i + 50000]))
+    del emb
+    os.remove(ruta_tmp)
     faiss.write_index(index, os.path.join(out, "dense.faiss"))
-    print(f"FAISS listo: {index.ntotal} vectores de dimension {emb.shape[1]}")
-    return emb.shape[1]
+    print(f"FAISS listo: {index.ntotal} vectores de dimension {dim}")
+    return dim
 
 
 def ensamblar_faiss(out, n_sh):
@@ -314,6 +385,8 @@ def main():
                         "(miles, casi todos irrelevantes). Los DECRETO UNICO si se indexan")
     p.add_argument("--nombre-codigo", action="store_true",
                    help="agrega el nombre del codigo a la cabecera: 'Ley 84 de 1873 (Código Civil)'")
+    p.add_argument("--temas-t", help="archivo de temas (ej. temas_t.txt): de las T del barrido solo entran "
+                                     "las que mencionan alguno al comienzo. C, SU y las del seed entran todas")
     p.add_argument("--solo-bm25", action="store_true")
     p.add_argument("--incremental", action="store_true",
                    help="si corpus.db cambio, reusa los vectores de dense.faiss y embebe solo los chunks nuevos")
@@ -324,7 +397,8 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     filas = cargar_chunks(args.db, args.sin_decretos_extra, args.con_duplicados, args.sin_sentencias_extra,
-                          args.solo_sentencias, args.sin_leyes_ruido, args.nombre_codigo)
+                          args.solo_sentencias, args.sin_leyes_ruido, args.nombre_codigo,
+                          leer_temas(args.temas_t) if args.temas_t else None)
     ids = [f[0] for f in filas]
     textos = [f[1] for f in filas]
     ruta_ids = os.path.join(args.out, "chunk_ids.json")
@@ -342,12 +416,17 @@ def main():
             os.replace(ruta_faiss, ruta_faiss_prev)
             shutil.copyfile(ruta_ids, ruta_ids_prev)
     previos = None
+    ruta_info = os.path.join(args.out, "info.json")
+    modelo_previo = json.load(open(ruta_info, encoding="utf-8")).get("modelo") if os.path.exists(ruta_info) else None
+    if args.incremental and modelo_previo and modelo_previo != args.modelo and not args.solo_bm25:
+        raise SystemExit(f"los vectores de {args.out} son de {modelo_previo}, no de {args.modelo}: "
+                         "usa otra carpeta --out (sin dense_previo.faiss) y sin --incremental")
     if args.incremental and not args.solo_bm25 and os.path.exists(ruta_faiss_prev):
         import faiss
         viejo = faiss.read_index(ruta_faiss_prev)
         ids_viejos = json.load(open(ruta_ids_prev, encoding="utf-8"))
         if viejo.ntotal == len(ids_viejos):
-            previos = (ids_viejos, viejo.reconstruct_n(0, viejo.ntotal))
+            previos = [ids_viejos, viejo.reconstruct_n(0, viejo.ntotal)]
             print(f"--incremental: {viejo.ntotal} vectores previos disponibles")
         del viejo
     json.dump(ids, open(ruta_ids, "w", encoding="utf-8"))
@@ -359,9 +438,12 @@ def main():
         construir_bm25(textos, args.out)
     if not args.solo_bm25:
         if previos:
-            dim = denso_incremental(ids, textos, previos, args.out, args.modelo, args.batch, args.max_len, args.device)
+            dim = denso_incremental(ids, textos, previos, args.out, args.modelo, args.batch, args.max_len,
+                                        args.device, args.shard)
             os.remove(ruta_faiss_prev)
             os.remove(ruta_ids_prev)
+            import shutil
+            shutil.rmtree(os.path.join(args.out, "emb_nuevos"), ignore_errors=True)
         else:
             dim = construir_denso(textos, args.out, args.modelo, args.batch, args.shard,
                                   args.max_len, args.device)

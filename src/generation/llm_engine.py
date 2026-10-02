@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
@@ -13,6 +14,7 @@ from src.config import (
     LLM_MODELO,
     LLM_TIMEOUT,
     METODO_SALIDA,
+    PENSAR_MAX_TOKENS,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -38,6 +40,17 @@ def _construir_cliente_base():
         timeout=LLM_TIMEOUT,
         max_retries=0,   # con temperatura 0, reintentar un timeout solo duplica la espera
         extra_body=config_extra,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_llm_pensante():
+    """Cliente con el modo de razonamiento de Qwen3 prendido y más tokens de salida."""
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model=LLM_MODELO, base_url=LLM_BASE_URL, api_key="EMPTY", temperature=0.0,
+        max_tokens=PENSAR_MAX_TOKENS, timeout=LLM_TIMEOUT, max_retries=0,
+        extra_body={"chat_template_kwargs": {"enable_thinking": True}} if _ES_QWEN3 else None,
     )
 
 
@@ -86,3 +99,20 @@ def texto_libre(sistema: str, usuario: str) -> str:
         ).strip()
         
     return str(contenido).strip()
+
+
+_PENSAMIENTO = re.compile(r"<think>.*?(</think>|$)", re.S)
+
+
+def _texto(respuesta) -> str:
+    contenido = respuesta.content
+    if isinstance(contenido, list):
+        contenido = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in contenido)
+    return str(contenido)
+
+
+def pensar(sistema: str, usuario: str) -> str:
+    """Llamada de texto libre con el razonamiento de Qwen3 prendido (sin /no_think). Devuelve solo la
+    conclusión: el bloque <think> se descarta (Ollama a veces lo manda aparte, a veces dentro del texto)."""
+    respuesta = get_llm_pensante().invoke([("system", sistema), ("human", usuario)])
+    return _PENSAMIENTO.sub("", _texto(respuesta)).strip()

@@ -27,3 +27,4 @@ truststore
 rank-bm25>=0.2.2
 
 pytest
+gradio>=4.44  # interfaz/app.py

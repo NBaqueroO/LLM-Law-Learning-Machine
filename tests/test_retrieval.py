@@ -225,3 +225,13 @@ def test_grafo_completo_cita_solo_lo_que_recupero(recursos, monkeypatch):
     respaldo = citations.bodies(citas_respaldadas(sub))
     assert citadas and citadas <= respaldo                       # ninguna cita sin respaldo
     assert "Ley 99" not in sub["respuesta"]
+
+
+def test_plantilla_qwen3_reranker():
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "retrieval"))
+    from reranker import pares
+    q, d = pares("tomaarsen/Qwen3-Reranker-0.6B-seq-cls", "¿plazo?", ["Artículo 1."])[0]
+    assert q.startswith("<|im_start|>system") and "<Query>: ¿plazo?" in q
+    assert d.startswith("<Document>: Artículo 1.") and d.endswith("</think>\n\n")
+    assert pares("BAAI/bge-reranker-v2-m3", "¿plazo?", ["x"]) == [("¿plazo?", "x")]

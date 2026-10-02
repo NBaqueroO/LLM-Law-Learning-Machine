@@ -107,7 +107,7 @@ def test_linea_de_respaldo_cumple_el_esquema():
 
 
 def test_main_parte_y_unir(tmp_path):
-    import main
+    from src import main
     entrada = tmp_path / "test.jsonl"
     entrada.write_text("".join(json.dumps(it) + "\n" for it in ITEMS), encoding="utf-8")
     final = tmp_path / "submissions.jsonl"

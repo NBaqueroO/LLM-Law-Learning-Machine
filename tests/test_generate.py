@@ -149,3 +149,34 @@ def test_open_recorta_conclusion(monkeypatch):
         conclusion=larga))
     out = nodes.generate_open(estado("open_ended", "Pedro demandó. ¿Qué procede?"))
     assert len(nodes._partir(out["salida"]["conclusion"])) <= 3
+
+def test_pensar_mc_manda_la_letra_del_analisis(monkeypatch):
+    vistos = []
+    monkeypatch.setattr(nodes, "PENSAR_MC", True)
+    monkeypatch.setattr(nodes, "pensar", lambda s, u: "Compara A y B con el artículo...\nRespuesta: B")
+    def falso(esquema, sistema, usuario):
+        vistos.append(usuario)
+        return SalidaMC(razonamiento="", pasajes_usados=[1], respuesta_correcta="A", justificacion="x",
+                        descarte_opciones=[])
+    monkeypatch.setattr(nodes, "generar", falso)
+    out = nodes.generate_mc(estado("multiple_choice", "¿?", {"A": "1", "B": "2"}))
+    assert "# ANÁLISIS PREVIO" in vistos[0] and "Respuesta: B" in vistos[0]
+    assert out["salida"]["respuesta_correcta"] == "B"
+    assert out["traza"]["letra_pensada"] == "B"
+
+
+def test_pensar_mc_si_falla_sigue_sin_analisis(monkeypatch):
+    monkeypatch.setattr(nodes, "PENSAR_MC", True)
+    def roto(s, u):
+        raise TimeoutError("lento")
+    monkeypatch.setattr(nodes, "pensar", roto)
+    monkeypatch.setattr(nodes, "generar", lambda *a: SalidaMC(
+        razonamiento="", pasajes_usados=[], respuesta_correcta="A", justificacion="x", descarte_opciones=[]))
+    out = nodes.generate_mc(estado("multiple_choice", "¿?", {"A": "1", "B": "2"}))
+    assert out["salida"]["respuesta_correcta"] == "A" and "lento" in out["traza"]["error_analisis"]
+
+
+def test_quitar_pensamiento():
+    from src.generation.llm_engine import _PENSAMIENTO
+    assert _PENSAMIENTO.sub("", "<think>mucho\nrazonar</think>\nRespuesta: C").strip() == "Respuesta: C"
+    assert prompts.letra_del_analisis("Respuesta: (b)\n...Respuesta: C") == "C"

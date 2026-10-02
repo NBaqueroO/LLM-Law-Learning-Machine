@@ -1,0 +1,103 @@
+# Temas de las 10 areas del banco. Una T del barrido entra al indice si su comienzo
+# (referencia, partes, sintesis) menciona alguno. Tildes y mayusculas no importan.
+# Coincide por palabra completa en los primeros 3000 caracteres. Se quitaron los temas que salen
+# en casi toda tutela (debido proceso, igualdad, victima...): con ellos no se filtraba nada.
+
+# laboral
+pension
+colpensiones
+despido
+estabilidad laboral reforzada
+fuero sindical
+fuero de maternidad
+sindicato
+contrato de trabajo
+contrato laboral
+prestaciones sociales
+cesantias
+incapacidad laboral
+riesgos laborales
+calificacion de perdida de capacidad laboral
+acoso laboral
+ugpp
+# familia
+custodia
+divorcio
+union marital
+filiacion
+paternidad
+patria potestad
+adopcion
+icbf
+violencia intrafamiliar
+violencia de genero
+# penal
+inpec
+privada de la libertad
+privado de la libertad
+privadas de la libertad
+centro penitenciario
+establecimiento penitenciario
+# procesal
+providencia judicial
+contra providencias
+defecto sustantivo
+defecto procedimental
+defecto factico
+desconocimiento del precedente
+# administrativo
+acto administrativo
+concurso de meritos
+carrera administrativa
+cnsc
+contratacion estatal
+contrato estatal
+proceso disciplinario
+responsabilidad fiscal
+servicios publicos domiciliarios
+# civil
+posesion
+servidumbre
+arrendamiento
+desalojo
+lanzamiento
+hipoteca
+sucesion
+herencia
+responsabilidad civil
+# comercial
+aseguradora
+titulo valor
+# mercados
+habeas data
+datos personales
+centrales de riesgo
+reporte negativo
+consumidor
+propiedad intelectual
+derechos de autor
+libre competencia
+# tributario
+impuesto
+tributari
+dian
+predial
+# constitucional
+consulta previa
+comunidad indigena
+comunidades etnicas
+afrodescendiente
+libertad de expresion
+buen nombre
+libertad religiosa
+victimas del conflicto
+desplazamiento forzado
+cuota alimentaria
+obligacion alimentaria
+regimen de visitas
+derecho penal
+proceso penal
+sistema penal
+pension de sobrevivientes
+indemnizacion sustitutiva
+matrimonio igualitario

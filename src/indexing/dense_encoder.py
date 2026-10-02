@@ -10,9 +10,16 @@ import numpy as np
 _CARGADOS = {}  # (modelo, dispositivo) -> SentenceTransformer: normas y jurisprudencia comparten copia
 
 
+QWEN3_CONSULTA = ("Instruct: Given a question about Colombian law, retrieve the legal provision or court "
+                  "ruling that answers it\nQuery: ")
+
+
 def prefijos(modelo: str) -> tuple[str, str]:
     """(prefijo de pasaje, prefijo de consulta) del modelo."""
-    return ("passage: ", "query: ") if "e5" in modelo.lower() else ("", "")
+    m = modelo.lower()
+    if "qwen3-embedding" in m:  # pasajes sin prefijo; la consulta lleva la instruccion de la tarea
+        return ("", QWEN3_CONSULTA)
+    return ("passage: ", "query: ") if "e5" in m else ("", "")
 
 
 def dispositivo_por_defecto() -> str:

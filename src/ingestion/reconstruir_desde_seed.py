@@ -153,22 +153,29 @@ def main():
         pasos_finales(out, a.seed_targets)
 
 
+TEMAS_T = str((Path(__file__).resolve().parent / "../../src/indexing/temas_t.txt").resolve())
+
 PASOS_FINALES = [
     ["limpiar_corpus.py", "--db", "{out}/corpus.db"],
     ["reetiquetar.py", "--db", "{out}/corpus.db"],
     ["../indexing/indexar.py", "--db", "{out}/corpus.db", "--sin-decretos-extra", "--sin-sentencias-extra", "--sin-leyes-ruido", "--solo-bm25",
      "--nombre-codigo", "--out", "{out}/index_sin_sentencias"],
-    ["../indexing/indexar.py", "--db", "{out}/corpus.db", "--solo-sentencias", "--solo-bm25", "--out", "{out}/index_juris"],
-    ["seed_corpus.py", "--out", "{out}", "--seed-targets", "{targets}", "--salida", "seed_corpus_reconstruido.json"],
+    ["../indexing/indexar.py", "--db", "{out}/corpus.db", "--solo-sentencias", "--solo-bm25", "--temas-t", TEMAS_T, "--out", "{out}/index_juris"],
+    ["seed_corpus.py", "--out", "{out}", "--seed-targets", "{targets}", "--salida", "{out}/seed_corpus_reconstruido.json"],
 ]
 
 
 def pasos_finales(out, seed_targets):
     """Los mismos pasos con los que se armo el corpus original (ver ESTRUCTURA.md)."""
     for paso in PASOS_FINALES:
-        cmd = [x.format(out=out.as_posix(), targets=seed_targets) for x in paso]
+        cmd = [x.format(out=out.resolve().as_posix(), targets=Path(seed_targets).resolve().as_posix())
+               for x in paso]
+        script = Path(__file__).resolve().parent / cmd[0]
+        if not script.exists():  # en el repo, indexar.py esta en src/indexing
+            script = Path(__file__).resolve().parent.parent / "indexing" / cmd[0]
+        cmd[0] = str(script)
         print(f"\n$ python {' '.join(cmd)}")
-        r = subprocess.run([sys.executable] + cmd, cwd=Path(__file__).parent)
+        r = subprocess.run([sys.executable] + cmd, cwd=script.parent)
         if r.returncode != 0:
             sys.exit(f"Fallo: python {' '.join(cmd)}  (corrigelo y retoma con --solo-indexar)")
     print("\nListo. Compara seed_corpus_reconstruido.json con seed_corpus.json (resumen y cobertura).")

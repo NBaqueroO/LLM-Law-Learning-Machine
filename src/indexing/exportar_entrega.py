@@ -69,6 +69,7 @@ FUENTES = {  # fuente en corpus.db -> (nombre, metodo de ingesta)
 LICENCIAS = {"CC-BY-4.0": "https://creativecommons.org/licenses/by/4.0/legalcode",
              "CC-BY-SA-4.0": "https://creativecommons.org/licenses/by-sa/4.0/legalcode",
              "CC0-1.0": "https://creativecommons.org/publicdomain/zero/1.0/legalcode"}
+SOBRAS_INDICE = {"emb_shards", "emb_nuevos", "dense_previo.faiss", "chunk_ids_previo.json"}
 ART_RE = re.compile(r"^Art\.\s*([0-9][0-9A-Za-z.\-]*)")
 
 
@@ -234,7 +235,7 @@ def main():
     if a.sin_zip:
         if not a.sin_indices:
             for d in a.indices:
-                shutil.copytree(d, raiz / "indice" / Path(d).name, ignore=shutil.ignore_patterns("emb_shards"))
+                shutil.copytree(d, raiz / "indice" / Path(d).name, ignore=shutil.ignore_patterns(*SOBRAS_INDICE))
         return
     # LICENSE, manifest, corpus/ e indice/ en la raiz del zip; los indices se leen directo de data/
     destino = Path(a.out) / f"corpus_{a.equipo}.zip"
@@ -246,7 +247,7 @@ def main():
         if not a.sin_indices:
             for d in a.indices:
                 for f in sorted(Path(d).rglob("*")):
-                    if f.is_file() and "emb_shards" not in f.parts:
+                    if f.is_file() and not SOBRAS_INDICE.intersection(f.parts):
                         # los vectores casi no se comprimen: se guardan tal cual, mas rapido
                         tipo = zipfile.ZIP_STORED if f.suffix in (".faiss", ".npy") else zipfile.ZIP_DEFLATED
                         z.write(f, f"indice/{Path(d).name}/{f.relative_to(d).as_posix()}", compress_type=tipo)

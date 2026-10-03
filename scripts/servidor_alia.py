@@ -45,7 +45,7 @@ def cargar_modelo(ruta_o_id: str, usar_4bit: bool = False, dispositivo: str = "c
     if not torch.cuda.is_available() and dispositivo.startswith("cuda"):
         logger.warning("CUDA no está disponible en PyTorch. Se intentará en CPU (será lento).")
         dispositivo = "cpu"
-    else:
+    elif dispositivo.startswith("cuda"):
         logger.info(f"GPU detectada: {torch.cuda.get_device_name(0)}")
         logger.info(f"VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 

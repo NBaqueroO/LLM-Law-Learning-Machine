@@ -1,6 +1,7 @@
 # Entorno virtual
 .venv/
 venv/
+.venv-*/
 env/
 
 # Modelo descargado (pesos, tokenizer, cache de Hugging Face)

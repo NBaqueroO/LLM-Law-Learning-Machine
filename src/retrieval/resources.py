@@ -154,6 +154,8 @@ class Recursos:
         out = []
         with self._candado:
             for nombre, b in self.indices.items():
+                if fuente == "denso" and b.faiss_index is None:  # índice sin dense.faiss (p. ej. index_juris)
+                    continue
                 propios = {d for d in docs if d in b.doc_de.values()}
                 n = min(K_FILTRO if propios else k, len(b.ids))
                 if fuente == "bm25":

@@ -5,6 +5,7 @@
     python main.py --entrada data/test_992.jsonl --ids 247,253   # verificación en vivo
     python main.py --split sample --ids 1 --ruta        # por qué nodos pasa la pregunta 1, en orden
     python main.py --split sample --limite 5            # prueba rápida
+    python main.py --split test --desde 151 --hasta 300 # preguntas 151 a 300 del archivo -> outputs/test_151-300.jsonl
     python main.py --split test --parte 1/2             # la mitad de las preguntas, para repartir en 2 GPU
     python main.py --split test --unir                  # junta las partes en outputs/submissions.jsonl
 
@@ -21,7 +22,8 @@ from pathlib import Path
 
 from src.config import DATA, OUTPUTS, SAMPLE, SCRIPTS
 
-ENTRADAS = {"sample": SAMPLE, "test": DATA / "test.jsonl"}
+ENTRADAS = {"sample": SAMPLE,
+            "test": DATA / "test.jsonl" if (DATA / "test.jsonl").exists() else DATA / "test_992.jsonl"}
 SALIDAS = {"sample": OUTPUTS / "sample_50.jsonl", "test": OUTPUTS / "submissions.jsonl"}
 
 
@@ -74,6 +76,8 @@ def main(argv=None) -> int:
     ap.add_argument("--ids", help="solo estos id, separados por coma: imprime respuesta y traza, no escribe")
     ap.add_argument("--ruta", action="store_true", help="con --ids: imprime los nodos que recorre cada pregunta")
     ap.add_argument("--limite", type=int, help="solo las primeras N preguntas")
+    ap.add_argument("--desde", type=int, help="posición (1 = primera línea del archivo) de la primera pregunta")
+    ap.add_argument("--hasta", type=int, help="posición de la última pregunta, incluida; salida <split>_<desde>-<hasta>.jsonl")
     ap.add_argument("--parte", help="i/n: responde solo items[i-1::n] (para repartir en n GPU)")
     ap.add_argument("--unir", action="store_true", help="junta las partes en la salida final y termina")
     ap.add_argument("--concurrencia", type=int, default=4, help="preguntas a la vez (Ollama: OLLAMA_NUM_PARALLEL)")
@@ -112,6 +116,12 @@ def main(argv=None) -> int:
 
     if args.limite:
         items = items[:args.limite]
+    if args.desde or args.hasta:
+        desde, hasta = args.desde or 1, args.hasta or len(items)
+        assert 1 <= desde <= hasta, "--desde va de 1 a --hasta"
+        items = items[desde - 1:hasta]
+        if not args.salida:
+            salida = OUTPUTS / f"{args.split}_{desde}-{hasta}.jsonl"
     if args.parte:
         i, n = (int(x) for x in args.parte.split("/"))
         assert 1 <= i <= n, "--parte va de 1/n a n/n"
@@ -123,7 +133,8 @@ def main(argv=None) -> int:
     total = time.time() - t
     print(f"listo en {total / 60:.1f} min ({total / max(1, len(items)):.1f} s por pregunta)")
 
-    if args.split == "sample" and not args.sin_evaluar and not args.parte and not args.limite and not args.entrada:
+    if (args.split == "sample" and not args.sin_evaluar and not args.parte and not args.limite
+            and not args.entrada and not args.desde and not args.hasta):
         return subprocess.run([sys.executable, str(SCRIPTS / "evaluate.py"), "--submission", str(salida),
                                "--split", "sample"]).returncode
     return 0

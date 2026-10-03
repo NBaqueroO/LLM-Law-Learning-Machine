@@ -96,7 +96,7 @@ def crear_app(demo: bool = False, sin_denso: bool = False, cargar_en_hilo: bool 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--puerto", type=int, default=8000)
+    ap.add_argument("--puerto", type=int, default=8080)
     ap.add_argument("--sin-denso", action="store_true", help="solo BM25 (sin GPU ni dense.faiss)")
     ap.add_argument("--demo", action="store_true", help="sin índices ni LLM: respuestas de ejemplo")
     args = ap.parse_args(argv)

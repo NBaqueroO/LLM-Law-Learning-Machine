@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Consulta Jurídica · Software Colombia</title>
+  <link rel="icon" href="/static/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="franja">
+    <div class="contenedor franja__fila">
+      <span>Hackathon 2026 · Derecho colombiano</span>
+      <span class="franja__derecha">RAG legal · BM25 + bge-m3 · verificación de citas</span>
+    </div>
+  </div>
+
+  <header class="cabecera">
+    <div class="contenedor cabecera__fila">
+      <a class="marca" href="/" aria-label="Inicio">
+        <img src="/static/logo.png" alt="Software Colombia">
+      </a>
+      <nav class="menu" aria-label="Secciones">
+        <a href="#consulta" class="activo">Consulta</a>
+        <a href="#resultado">Resultado</a>
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="/api/docs" target="_blank" rel="noopener">API</a>
+      </nav>
+      <span id="estado" class="estado estado--cargando" title="">
+        <span class="estado__punto"></span><span id="estado-texto">Conectando…</span>
+      </span>
+    </div>
+  </header>
+
+  <div id="aviso-demo" class="aviso-demo" hidden>
+    Modo demostración: respuestas de ejemplo, sin índices ni modelo. Para consultas reales: <code>python app.py</code>
+  </div>
+
+  <section class="heroe" id="consulta">
+    <svg class="heroe__forma" viewBox="0 0 400 400" aria-hidden="true">
+      <g fill="none" stroke="currentColor" stroke-width="34" stroke-linejoin="miter">
+        <path d="M200 40 L340 120 L340 280 L200 360 L60 280 L60 120 Z"/>
+        <path d="M200 40 L200 200 L340 280 M200 200 L60 280" opacity=".55"/>
+      </g>
+    </svg>
+    <div class="contenedor heroe__contenido">
+      <div class="heroe__titulo">
+        <svg class="hexagono" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M32 4 L56 18 L56 46 L32 60 L8 46 L8 18 Z" fill="none" stroke="currentColor" stroke-width="5"/>
+          <path d="M32 17 V46 M22 46 H42 M18 24 H46" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+          <path d="M18 24 L13 35 H23 Z M46 24 L41 35 H51 Z" fill="currentColor"/>
+        </svg>
+        <div>
+          <p class="heroe__antetitulo">Asistente de</p>
+          <h1>Consulta Jurídica</h1>
+        </div>
+      </div>
+      <p class="heroe__bajada">Pregunte sobre derecho colombiano. El sistema recupera los pasajes del corpus,
+        genera la respuesta y verifica que cada norma citada esté respaldada.</p>
+
+      <form id="formulario" class="tarjeta formulario" autocomplete="off">
+        <label for="pregunta" class="formulario__etiqueta">Su pregunta</label>
+        <textarea id="pregunta" name="pregunta" rows="4" required minlength="3"
+          placeholder="Ej.: ¿Cuáles son los elementos esenciales de validez de un contrato?"></textarea>
+
+        <div class="formulario__fila">
+          <label class="selector">
+            <span>Tipo de respuesta</span>
+            <select id="formato" name="formato">
+              <option value="">Automático</option>
+              <option value="multiple_choice">Selección múltiple</option>
+              <option value="semi_open">Semiabierta</option>
+              <option value="open_ended">Abierta (caso)</option>
+            </select>
+          </label>
+          <div class="ejemplos" aria-label="Ejemplos">
+            <span>Ejemplos:</span>
+            <button type="button" class="chip" data-ejemplo="semi">Validez del contrato</button>
+            <button type="button" class="chip" data-ejemplo="mc">Acción de grupo</button>
+            <button type="button" class="chip" data-ejemplo="open">Caso de tutela</button>
+          </div>
+        </div>
+
+        <fieldset id="opciones" class="opciones" hidden>
+          <legend>Opciones <small>(o escríbalas en la pregunta: A) … B) …)</small></legend>
+          <label><b>A</b><input name="A" type="text"></label>
+          <label><b>B</b><input name="B" type="text"></label>
+          <label><b>C</b><input name="C" type="text"></label>
+          <label><b>D</b><input name="D" type="text"></label>
+        </fieldset>
+
+        <div class="formulario__acciones">
+          <small class="atajo">Ctrl + Enter para consultar</small>
+          <button id="enviar" type="submit" class="boton boton--naranja">Consultar</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <main class="contenedor" id="resultado">
+    <div id="vacio" class="vacio">
+      <p class="antetitulo">LLM Law Learning Machine</p>
+      <h2 class="titulo-seccion">Resultado de la consulta</h2>
+      <p class="vacio__texto">Aquí aparecerán la respuesta, las normas citadas y los pasajes que la sustentan.</p>
+    </div>
+
+    <div id="cargando" class="cargando" hidden>
+      <div class="cargando__cubo" aria-hidden="true"></div>
+      <p>Recuperando pasajes y generando la respuesta… <span id="cronometro">0 s</span></p>
+    </div>
+
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <div id="salida" hidden>
+      <div class="centrado">
+        <p class="antetitulo">Respuesta del sistema</p>
+        <h2 class="titulo-seccion">Resultado de la consulta</h2>
+      </div>
+      <p id="pregunta-eco" class="pregunta-eco"></p>
+      <div id="metadatos" class="metadatos"></div>
+
+      <article id="respuesta" class="tarjeta respuesta"></article>
+
+      <div class="columnas">
+        <section class="columna-normas" aria-labelledby="t-normas">
+          <h3 id="t-normas" class="subtitulo">Normas citadas <span id="n-normas" class="contador"></span></h3>
+          <p class="ayuda">Citas que el evaluador extrae de la respuesta. Clic para ver en qué pasajes aparecen.</p>
+          <ul id="normas" class="normas"></ul>
+        </section>
+        <section class="columna-pasajes" aria-labelledby="t-pasajes">
+          <h3 id="t-pasajes" class="subtitulo">Pasajes recuperados <span id="n-pasajes" class="contador"></span></h3>
+          <p class="ayuda">Top-10 del recuperador, en el orden en que se entregan como evidencia.</p>
+          <ol id="pasajes" class="pasajes"></ol>
+        </section>
+      </div>
+
+      <details class="tarjeta crudo">
+        <summary>Línea JSON de la entrega <small>(idéntica a la que escribe <code>main.py</code>)</small></summary>
+        <button type="button" id="copiar" class="boton boton--turquesa boton--chico">Copiar</button>
+        <pre id="json"></pre>
+      </details>
+      <details class="tarjeta crudo">
+        <summary>Traza del grafo</summary>
+        <pre id="traza"></pre>
+      </details>
+    </div>
+
+    <section id="como-funciona" class="como">
+      <div class="centrado">
+        <p class="antetitulo">Arquitectura</p>
+        <h2 class="titulo-seccion">Cómo funciona</h2>
+      </div>
+      <div class="pasos">
+        <div class="tarjeta paso"><span class="paso__n">1</span><h4>Clasificar</h4><p>Formato de la pregunta y normas que nombra.</p></div>
+        <div class="tarjeta paso"><span class="paso__n">2</span><h4>Recuperar</h4><p>BM25 + vectores bge-m3, fusión RRF y reranker.</p></div>
+        <div class="tarjeta paso"><span class="paso__n">3</span><h4>Generar</h4><p>El modelo responde solo con los pasajes recuperados.</p></div>
+        <div class="tarjeta paso"><span class="paso__n">4</span><h4>Verificar</h4><p>Cada cita debe estar en los pasajes; si no, se poda.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <div class="contenedor pie__fila">
+      <img src="/static/logo.png" alt="Software Colombia" class="pie__logo">
+      <p>LLM Law Learning Machine · Las respuestas son generadas automáticamente y no constituyen asesoría jurídica.</p>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

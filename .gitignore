@@ -1,6 +1,7 @@
 # Entorno virtual
 .venv/
 venv/
+.venv-*/
 env/
 
 # Modelo descargado (pesos, tokenizer, cache de Hugging Face)
@@ -39,3 +40,18 @@ Thumbs.db
 # OneDrive genera archivos temporales de sincronización
 *.tmp
 ~$*
+
+
+scripts/.env
+data/raw/*
+data/processed/*
+indices/*
+outputs/*.trazas.jsonl
+!**/.gitkeep
+
+# corpus e índices (pesan GB: van al zip de la nube, no al repo)
+*.db
+*.faiss
+outputs/*.jsonl
+data/seed/
+.pytest_cache/

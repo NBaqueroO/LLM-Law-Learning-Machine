@@ -1,0 +1,73 @@
+"""Configuración central: rutas y parámetros."""
+import os
+from pathlib import Path
+
+# Rutas
+RAIZ = Path(__file__).resolve().parents[1]
+DATA = RAIZ / "data"   # en la raíz: el kit oficial (scripts/common.py) la busca ahí
+SAMPLE = DATA / "sample_50.jsonl"
+PROCESSED = DATA / "processed"
+INDICES = RAIZ / "indices"
+OUTPUTS = RAIZ / "outputs"
+SUBMISSIONS = RAIZ / "submissions.jsonl"   # la entrega: 992 respuestas en la raíz del repositorio
+SCRIPTS = RAIZ / "scripts"
+SCHEMA = RAIZ / "schema" / "submission.schema.json"
+
+
+MIN_OPCIONES_EN_TEXTO = 3   # "A) ... B) ... C) ..." consecutivas desde A
+UMBRAL_CASO = 3 
+
+
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ollama; vLLM: :8000/v1
+LLM_MODELO = os.environ.get("LLM_MODELO", "BSC-LT/salamandra-7b-instruct")  # vLLM: BSC-LT/salamandra-7b-instruct
+METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema; "texto" si lo ignora (src/servidor_alia.py)
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "800"))  # tope de tokens de salida por llamada
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "400"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
+MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1200"))  # recorte de cada pasaje dentro del prompt
+SMMLV = float(os.environ.get("SMMLV", "1750905"))   # salario mínimo mensual para generation/calculos.py
+SMMLV_ANIO = os.environ.get("SMMLV_ANIO", "2026")
+PASAJES_MC = int(os.environ.get("PASAJES_MC", "5"))  # cuántos de los top-10 ve el modelo en las cerradas
+# Cómo se elige la letra de las cerradas: "texto" (leída de lo que escribe el modelo), "probabilidad"
+# (la letra más probable tras el prompt) o "probabilidad_razonada" (tras su propio razonamiento).
+# Las dos últimas usan /opciones de src/servidor_alia.py; sin ese endpoint se usa "texto".
+# sample_50, 15 cerradas: texto 9 y 8, probabilidad 7 y 9, probabilidad_razonada 10 y 9 (con 5 y 6 pasajes).
+ELECCION_MC = os.environ.get("ELECCION_MC", "probabilidad_razonada")
+# Peso de la evidencia por opción (guards/evidencia_mc.py) frente a la probabilidad del modelo. 0 = solo
+# se mide y queda en la traza; no cambia la letra.
+EVIDENCIA_MC_PESO = float(os.environ.get("EVIDENCIA_MC_PESO", "0"))
+MAX_PALABRAS_SEMI = 150     # límite del enunciado para "respuesta"
+MAX_PALABRAS_OPEN = 500     # límite del enunciado para la respuesta abierta (los cuatro campos juntos)
+MAX_ORACIONES_SEMI = 5
+MAX_ORACIONES_ANALISIS = 8
+
+
+TOP_K = 10                  # pasajes que cuentan como respaldo para el evaluador
+UMBRAL_SCORE = float(os.environ.get("UMBRAL_SCORE", "0.95"))  # debajo de esto la evidencia es "crítica" -> un reintento
+PISO_ABSTENCION = float(os.environ.get("PISO_ABSTENCION", "0.60"))  # debajo de esto, tras reintentar, el texto libre se abstiene
+
+# Paso 3 - recuperación. El índice no es un servidor: son archivos en indices/ que
+# Recursos.cargar() (src/retrieval/resources.py) carga una vez al arrancar:
+#   corpus.db                     texto, metadatos y offsets de cada fragmento (SQLite)
+#   index_sin_sentencias/         normas: dense.faiss (bge-m3, IndexFlatIP), bm25/, chunk_ids.json, info.json
+#   index_juris/                  sentencias, con la misma estructura
+#   index_manifest.json           encoder, prefijos, tamaños y sha256 de cada archivo (build_index.py)
+# Cada ruta se puede cambiar con una variable de entorno del mismo nombre (así lo hace el notebook de Colab).
+CORPUS_DB = Path(os.environ.get("CORPUS_DB", INDICES / "corpus.db"))
+INDEX_NORMAS = Path(os.environ.get("INDEX_NORMAS", INDICES / "index_sin_sentencias"))
+INDEX_JURIS = Path(os.environ.get("INDEX_JURIS", INDICES / "index_juris"))
+INDEX_MANIFEST = Path(os.environ.get("INDEX_MANIFEST", INDICES / "index_manifest.json"))
+
+ENCODER = os.environ.get("ENCODER", "BAAI/bge-m3")          # el del índice entregado; debe coincidir con el manifiesto
+RERANKER = os.environ.get("RERANKER", "BAAI/bge-reranker-v2-m3")  # vacío = sin reranker. sample_50: 42/49 normas en el top-10 con él, 40/49 sin él (+0,2 s)
+DISPOSITIVO = os.environ.get("DISPOSITIVO") or None          # None = GPU si hay; "cpu" si el LLM ocupa toda la GPU
+
+K_CANDIDATOS = int(os.environ.get("K_CANDIDATOS", "50"))  # candidatos por buscador (BM25 y denso) en cada índice
+K_RERANK = 40               # cuántos pasan por el reranker, si está prendido
+RRF_K = 60                  # constante de Reciprocal Rank Fusion
+CUPO_JURIS = float(os.environ.get("CUPO_JURIS", "0.3"))  # parte del top-10 para sentencias (la mitad si la pregunta es de jurisprudencia)
+AREA_EN_CONSULTA = os.environ.get("AREA_EN_CONSULTA", "0") == "1"    # "1": la 1.ª búsqueda suma los códigos del área. Apagado: con él bajaron cerradas y juez (47,75)
+CITAR_RECUPERADAS = os.environ.get("CITAR_RECUPERADAS", "1") == "1"  # citar también las normas de los top-10 que el modelo no nombró
+VERIFICAR = os.environ.get("VERIFICAR", "1") == "1"   # revisar si la respuesta contesta la pregunta y reintentar una vez (guards/cobertura.py)
+UMBRAL_COBERTURA = float(os.environ.get("UMBRAL_COBERTURA", "0.5"))  # relevancia mínima pregunta-respuesta según el reranker
+PROMPT_EVALUACION = os.environ.get("PROMPT_EVALUACION", "0") == "1"  # "1": el prompt de sistema explica cómo se califica la respuesta
+K_FILTRO = 3000             # con filtro de cuerpos: candidatos que se miran antes de quedarse con los de esas normas

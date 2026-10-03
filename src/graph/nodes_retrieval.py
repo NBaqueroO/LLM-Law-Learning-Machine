@@ -46,15 +46,16 @@ def vector_search(state: Estado) -> Dict[str, Any]:
     return {"dense_hits": RECURSOS.denso(_consulta(state), K_CANDIDATOS, state.get("filtro_cuerpos") or None)}
 
 
-def _ranking(indice: str, hits: list, texto_citas: str, consulta: str) -> list[tuple[str, float]]:
-    """[(chunk_id, score)] de un índice: citados primero (1.0), luego RRF (y reranker si está)."""
+def _ranking(indice: str, hits: list, texto_citas: str, consulta: str,
+             reordenar: bool = True) -> list[tuple[str, float]]:
+    """[(chunk_id, score)] de un índice: citados primero (1.0), luego RRF (y reranker si está y reordenar)."""
     listas = [[h["chunk_id"] for h in sorted((h for h in hits if h["indice"] == indice and h["fuente"] == f),
                                              key=lambda h: h["rango"])]
               for f in ("bm25", "denso")]
     fusion = rrf.fusionar([l for l in listas if l])
     fijos = RECURSOS.citados(indice, texto_citas, TOP_K)
     resto = [(c, s) for c, s in fusion if c not in fijos]
-    if RECURSOS.reranker is not None and resto:
+    if reordenar and RECURSOS.reranker is not None and resto:
         cabeza = RECURSOS.rerank(consulta, RECURSOS.pasajes(resto[:K_RERANK]))
         resto = [(p["chunk_id"], p["score"]) for p in cabeza] + resto[K_RERANK:]
     return [(c, 1.0) for c in fijos] + resto
@@ -98,7 +99,10 @@ def fuse_and_rerank(state: Estado) -> Dict[str, Any]:
         consulta = _consulta(state)
         texto_citas = state["pregunta"]
         hits = list(state.get("bm25_hits") or []) + list(state.get("dense_hits") or [])
-        rankings = {nombre: _ranking(nombre, hits, texto_citas, consulta) for nombre in RECURSOS.indices}
+        # Sin reranker en las cerradas: la consulta lleva las opciones (3 distractores) y el reranker
+        # sube pasajes parecidos a una opción incorrecta. sample_50: 8/15 con él, 11/15 sin él.
+        reordenar = state.get("formato") != "multiple_choice"
+        rankings = {nombre: _ranking(nombre, hits, texto_citas, consulta, reordenar) for nombre in RECURSOS.indices}
         hallados = _vigentes_primero(RECURSOS.pasajes(_con_cupo(rankings, texto_citas, n=2 * TOP_K)),
                                      texto_citas)
         n_listas = RECURSOS.n_listas

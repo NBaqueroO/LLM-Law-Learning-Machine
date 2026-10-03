@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import re
 
-from src.config import MAX_CHARS_PASAJE, MAX_PALABRAS_OPEN, MAX_PALABRAS_SEMI, METODO_SALIDA, PROMPT_EVALUACION
+from src.config import (MAX_CHARS_PASAJE, MAX_PALABRAS_OPEN, MAX_PALABRAS_SEMI, METODO_SALIDA, PASAJES_MC,
+                        PROMPT_EVALUACION)
+from src.generation import calculos
 from src.official import citations
 
 SISTEMA = """# ROL
@@ -83,7 +85,7 @@ nulidad; recurso de reposición, apelación y queja.
 Pasajes recuperados del corpus:
 {pasajes}
 
-Pregunta:
+{calculos}Pregunta:
 {pregunta}
 
 Opciones:
@@ -133,7 +135,7 @@ circuito") en lugar de sinónimos.
 Pasajes recuperados del corpus:
 {pasajes}
 
-Pregunta:
+{calculos}Pregunta:
 {pregunta}
 
 # ENFOQUE
@@ -187,7 +189,7 @@ cambiaría la solución.
 Pasajes recuperados del corpus:
 {pasajes}
 
-Caso:
+{calculos}Caso:
 {pregunta}
 
 # ENFOQUE
@@ -305,6 +307,10 @@ def detectar_subtarea(pregunta: str) -> tuple[str | None, str]:
     return None, INSTRUCCION_GENERAL
 
 
+# Cuántos de los top-10 entran al prompt de cada formato (guards/usados.py elige solo entre esos)
+PASAJES_VISTOS = {"mc": PASAJES_MC, "semi": 5, "open": 6}
+
+
 def bloque_pasajes(pasajes: list[dict], max_pasajes: int | None = None) -> str:
     """Numera los pasajes y recorta cada uno a MAX_CHARS_PASAJE caracteres."""
     if not pasajes:
@@ -322,8 +328,9 @@ def mensaje_mc(state: dict) -> str:
     opciones = state["opciones"]
     formato = (FORMATO_MC_TEXTO if EN_TEXTO else FORMATO_MC_JSON).format(letras=", ".join(opciones))
     return PROMPT_MC.format(
-        formato=formato, area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5),
-        pregunta=state["pregunta"], opciones="\n".join(f"{l}) {t}" for l, t in opciones.items()))
+        formato=formato, area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=PASAJES_VISTOS["mc"]),
+        pregunta=state["pregunta"], opciones="\n".join(f"{l}) {t}" for l, t in opciones.items()),
+        calculos=calculos.datos_calculados(state["pregunta"], opciones))
 
 
 def mensaje_semi(state: dict) -> tuple[str, str | None]:
@@ -332,12 +339,14 @@ def mensaje_semi(state: dict) -> tuple[str, str | None]:
     texto = PROMPT_SEMI.format(
         formato=formato, enfoque=ENFOQUE_SEMI + (INICIO_TEXTO.format(etiqueta="RESPUESTA") if EN_TEXTO else ""),
         instruccion_subtarea=instruccion, area=_area(state),
-        pasajes=bloque_pasajes(state["pasajes"], max_pasajes=5), pregunta=state["pregunta"])
+        pasajes=bloque_pasajes(state["pasajes"], max_pasajes=PASAJES_VISTOS["semi"]), pregunta=state["pregunta"],
+        calculos=calculos.datos_calculados(state["pregunta"]))
     return texto, subtarea
 
 
 def mensaje_open(state: dict) -> str:
     return PROMPT_OPEN.format(formato=FORMATO_OPEN_TEXTO if EN_TEXTO else FORMATO_OPEN_JSON,
-                              area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=6),
+                              area=_area(state), pasajes=bloque_pasajes(state["pasajes"], max_pasajes=PASAJES_VISTOS["open"]),
                               pregunta=state["pregunta"], max_palabras=MAX_PALABRAS_OPEN,
+                              calculos=calculos.datos_calculados(state["pregunta"]),
                               inicio=INICIO_TEXTO.format(etiqueta="CONCLUSIÓN") if EN_TEXTO else "")

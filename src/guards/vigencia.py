@@ -16,10 +16,17 @@ INEXEQUIBLE = re.compile(
     rf"<\s*{_UNIDAD}\s+(?:\w+\s+){{0,3}}?(?:declarad[oa]\s+)?INEXEQUIBLE\b", re.IGNORECASE)
 
 
+# Leyes que reescriben un artículo del Código de Procedimiento Civil ("El artículo 19 del Código de
+# Procedimiento Civil quedará así"): ese código lo derogó el CGP (Ley 1564 de 2012), así que esos textos
+# no rigen. En sample_50 eran 4 de los 5 pasajes de la pregunta de cuantía, con topes en pesos de otras épocas.
+CPC = re.compile(r"\bc[oó]digo de procedimiento civil\b[^.]{0,40}\b(?:quedar[aá] as[ií]|quedar[aá]n as[ií]|"
+                 r"se modifica|modif[ií]case|subr[oó]gase)", re.IGNORECASE)
+
+
 def estado(texto: str) -> str | None:
     """'derogado', 'inexequible' o None (vigente o no se sabe)."""
     cabeza = (texto or "")[:CABEZA]
-    if DEROGADO.search(cabeza):
+    if DEROGADO.search(cabeza) or CPC.search(cabeza):
         return "derogado"
     if INEXEQUIBLE.search(cabeza):
         return "inexequible"

@@ -143,7 +143,7 @@ def _extraer_o_construir_esquema(esquema: Type[T], texto: str) -> T:
     nombre = getattr(esquema, "__name__", "")
     texto = (texto or "").strip()
     sec = _secciones(texto, ETIQUETAS.get(nombre, {}))
-    usados = _numeros(sec.get("pasajes_usados", "")) or [1]
+    usados = _numeros(sec.get("pasajes_usados", ""))  # vacío = no lo dijo: los nodos lo deducen (guards/usados.py)
 
     if nombre == "SalidaMC":
         from src.generation.schemas import DescarteOpcion, SalidaMC
@@ -215,6 +215,36 @@ def generar(esquema: Type[T], sistema: str, usuario: str) -> T:
 
     texto_resp = texto_libre(sistema, usuario)
     return _extraer_o_construir_esquema(esquema, texto_resp)
+
+
+# Sin espacio al final: en Salamandra la letra lleva el espacio pegado ("▁B"); un espacio suelto al
+# final del prefijo sesga la distribución (en una prueba, "capital de Colombia" daba C 69 % con él, 97 % sin él)
+PREFIJO_OPCION = "La opción correcta es la"
+PREGUNTA_LETRA = "Según tu análisis, ¿cuál es la opción correcta? Responde solo con la letra."
+
+
+def elegir_opcion(sistema: str, usuario: str, letras: List[str],
+                  analisis: Optional[str] = None) -> Optional[Dict[str, float]]:
+    """Probabilidad de cada letra según el modelo (endpoint /opciones de scripts/servidor_alia.py):
+    una sola pasada, sin generar texto, así que siempre es una de las letras. Con `analisis`, el
+    modelo primero "dice" su propio razonamiento y luego se le pide la letra. Devuelve None si el
+    servidor no tiene el endpoint (Ollama, vLLM): se usa la letra del texto."""
+    import json
+    import urllib.request
+
+    mensajes = [{"role": "system", "content": sistema}, {"role": "user", "content": usuario}]
+    if analisis:
+        mensajes += [{"role": "assistant", "content": analisis[:3000]},
+                     {"role": "user", "content": PREGUNTA_LETRA}]
+    cuerpo = json.dumps({"messages": mensajes, "opciones": letras, "prefijo": PREFIJO_OPCION}).encode("utf-8")
+    peticion = urllib.request.Request(LLM_BASE_URL.rstrip("/") + "/opciones", data=cuerpo,
+                                      headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(peticion, timeout=LLM_TIMEOUT) as r:
+            return json.loads(r.read().decode("utf-8"))["probabilidades"]
+    except Exception as err:
+        logger.debug("Sin /opciones en %s (%s): se usa la letra del texto.", LLM_BASE_URL, err)
+        return None
 
 
 def texto_libre(sistema: str, usuario: str) -> str:

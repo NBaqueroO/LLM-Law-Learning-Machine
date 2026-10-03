@@ -7,12 +7,13 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from src.config import (AREA_EN_CONSULTA, CITAR_RECUPERADAS, MAX_ORACIONES_ANALISIS, MAX_ORACIONES_SEMI,
-                        MAX_PALABRAS_OPEN, MAX_PALABRAS_SEMI, SCHEMA, TOP_K, VERIFICAR)
-from src.generation import prompts
+                        MAX_PALABRAS_OPEN, MAX_PALABRAS_SEMI, SCHEMA, TOP_K, VERIFICAR, ELECCION_MC,
+                        EVIDENCIA_MC_PESO)
+from src.generation import calculos, llm_engine, prompts
 from src.generation.llm_engine import generar
 from src.generation.schemas import SalidaMC, SalidaOpen, SalidaSemi
 from src.graph import nodes_retrieval
-from src.guards import abstention_policy, citation_builder, citation_verifier, cobertura
+from src.guards import abstention_policy, citation_builder, citation_verifier, cobertura, evidencia_mc, usados
 from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
 from src.official import citations
 from src.query.classifier import FORMATOS, detectar_formato, extraer_opciones
@@ -149,6 +150,15 @@ def _sin_preguntas(texto: str, conservar_primera: bool = False) -> str:
     return " ".join(quedan)
 
 
+def _usados(state: Estado, declarados: List[int], respuesta: str, formato: str) -> List[int]:
+    """Los pasajes que el modelo dijo usar; si no dijo (Salamandra nunca lo hace), se deducen de su
+    respuesta entre los que vio en el prompt (guards/usados.py)."""
+    pasajes = state.get("pasajes", [])
+    if declarados:
+        return _mapear_indices_pasajes(declarados, pasajes)
+    return usados.inferir(respuesta, pasajes[:prompts.PASAJES_VISTOS[formato]], _reranker())
+
+
 def _mapear_indices_pasajes(numeros_usados: List[int], pasajes: List[Any]) -> List[int]:
     """Mapea las referencias numéricas en base-1 del LLM a índices de lista válidos."""
     if not pasajes:
@@ -226,6 +236,31 @@ def _mc_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
 
     letra_candidata = resultado.respuesta_correcta.strip().upper()[:1]
     respuesta_correcta = letra_candidata if letra_candidata in opciones else ""
+    traza = {"razonamiento_mc": _limpiar(resultado.razonamiento), "letra_texto": respuesta_correcta}
+
+    # La letra por probabilidad (ELECCION_MC): siempre una de las opciones, sin leer texto libre
+    if ELECCION_MC != "texto":
+        analisis = resultado.justificacion if ELECCION_MC == "probabilidad_razonada" else None
+        probs = llm_engine.elegir_opcion(prompts.SISTEMA, prompt, list(opciones), analisis)
+        if probs:
+            respuesta_correcta = max(probs, key=lambda l: (probs[l], -list(opciones).index(l)))
+            traza["probabilidades_mc"] = probs
+
+    # Evidencia por opción: cuánto respalda cada pasaje a cada opción (reranker), sumada a la del modelo
+    evidencia = evidencia_mc.por_opcion(state["pregunta"], opciones, state.get("pasajes", []), _reranker())
+    if evidencia:
+        traza["evidencia_mc"] = evidencia
+        if EVIDENCIA_MC_PESO > 0:
+            base = traza.get("probabilidades_mc") or {l: (1.0 if l == respuesta_correcta else 0.0) for l in opciones}
+            combinada = evidencia_mc.combinar(base, evidencia, EVIDENCIA_MC_PESO)
+            respuesta_correcta = max(combinada, key=lambda l: (combinada[l], -list(opciones).index(l)))
+            traza["puntaje_mc"] = combinada
+
+    # Si la calculadora determina la respuesta (p. ej. la cuantía en SMMLV), manda ella: va al final
+    calculada = calculos.opcion_calculada(state["pregunta"], opciones)
+    if calculada:
+        respuesta_correcta = calculada
+        traza["letra_calculada"] = calculada
 
     descarte = {}
     for item in resultado.descarte_opciones:
@@ -245,8 +280,8 @@ def _mc_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
             "justificacion": justificacion,
             "descarte_opciones": descarte,
         },
-        "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
-        "traza": {"razonamiento_mc": _limpiar(resultado.razonamiento)},
+        "usados": _usados(state, resultado.pasajes_usados, resultado.justificacion, "mc"),
+        "traza": traza,
         "texto": f"{respuesta_correcta}. {justificacion}",
     }
 
@@ -287,7 +322,8 @@ def _semi_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
             "palabras_clave": palabras_clave,
             "referencia_legal": _limpiar(resultado.referencia_legal, punto=False),
         },
-        "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
+        "usados": _usados(state, resultado.pasajes_usados,
+                          f"{resultado.respuesta} {resultado.referencia_legal}", "semi"),
         "texto": respuesta_acotada,
     }
 
@@ -325,7 +361,9 @@ def _open_una_vez(state: Estado, prompt: str) -> Dict[str, Any]:
             "conclusion": _truncar_texto(_limpiar(_sin_preguntas(resultado.conclusion)),
                                          max_oraciones=3, max_palabras=tope["conclusion"]),
         },
-        "usados": _mapear_indices_pasajes(resultado.pasajes_usados, state.get("pasajes", [])),
+        "usados": _usados(state, resultado.pasajes_usados,
+                          " ".join([resultado.marco_normativo, resultado.analisis, resultado.jurisprudencia,
+                                    resultado.conclusion]), "open"),
         "crudo": {"analisis": resultado.analisis, "conclusion": resultado.conclusion},
         "texto": f"{resultado.conclusion} {resultado.analisis}".strip(),
     }

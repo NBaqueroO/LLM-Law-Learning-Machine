@@ -125,6 +125,26 @@ def generar_respuesta(mensajes: list[dict], max_tokens: int = 1200, temperatura:
     return TOKENIZER.decode(nuevos_tokens, skip_special_tokens=True).strip()
 
 
+def puntuar_opciones(mensajes: list[dict], opciones: list[str], prefijo: str = "") -> dict[str, float]:
+    """Probabilidad de cada opción (p. ej. "A".."D") como siguiente token después de la respuesta
+    del asistente empezada con `prefijo`. Una sola pasada del modelo, sin generar: siempre devuelve
+    una de las opciones y es determinista."""
+    import torch
+
+    texto = TOKENIZER.apply_chat_template(mensajes, tokenize=False, add_generation_prompt=True) + prefijo
+    inputs = TOKENIZER(texto, return_tensors="pt", add_special_tokens=False).to(MODEL.device)
+    with torch.inference_mode():
+        logits = MODEL(**inputs).logits[0, -1].float()
+    logprobs = torch.log_softmax(logits, dim=-1)
+    puntajes = {}
+    for op in opciones:
+        # la letra puede tokenizarse sola ("B") o pegada a un espacio (" B"): se suman ambas
+        ids = {TOKENIZER.encode(v, add_special_tokens=False)[0] for v in (op, " " + op)}
+        puntajes[op] = float(torch.logsumexp(logprobs[list(ids)], dim=0))
+    total = torch.logsumexp(torch.tensor(list(puntajes.values())), dim=0)
+    return {op: round(float(torch.exp(torch.tensor(v) - total)), 6) for op, v in puntajes.items()}
+
+
 class OpenAIHandler(BaseHTTPRequestHandler):
     def _enviar_json(self, status: int, data: dict):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -162,6 +182,8 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._enviar_json(404, {"error": "Ruta no encontrada"})
 
     def do_POST(self):
+        if self.path in ("/v1/opciones", "/opciones"):
+            return self._opciones()
         if self.path not in ("/v1/chat/completions", "/chat/completions"):
             self._enviar_json(404, {"error": "Ruta no encontrada"})
             return
@@ -209,6 +231,20 @@ class OpenAIHandler(BaseHTTPRequestHandler):
             self._enviar_json(200, respuesta)
         except Exception as e:
             logger.exception("Error al generar respuesta")
+            self._enviar_json(500, {"error": str(e)})
+
+    def _opciones(self):
+        """POST /v1/opciones {"messages": [...], "opciones": ["A","B","C","D"], "prefijo": "..."}
+        -> {"probabilidades": {"A": 0.1, ...}, "eleccion": "B"}"""
+        try:
+            peticion = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8"))
+            t0 = time.time()
+            probs = puntuar_opciones(peticion["messages"], peticion["opciones"], peticion.get("prefijo", ""))
+            eleccion = max(probs, key=lambda k: (probs[k], -peticion["opciones"].index(k)))
+            logger.info(f"Opciones puntuadas en {time.time() - t0:.2f} s -> {eleccion} {probs}")
+            self._enviar_json(200, {"probabilidades": probs, "eleccion": eleccion})
+        except Exception as e:
+            logger.exception("Error al puntuar opciones")
             self._enviar_json(500, {"error": str(e)})
 
 

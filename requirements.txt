@@ -6,6 +6,10 @@ langchain-openai
 pydantic
 jsonschema
 
+# Interfaz web (app.py, src/ui/)
+fastapi
+uvicorn[standard]
+
 # Recuperación (src/retrieval, src/indexing)
 bm25s>=0.2
 faiss-cpu>=1.8

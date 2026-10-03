@@ -11,6 +11,7 @@ import json
 import time
 from pathlib import Path
 
+from src.config import OUTPUTS, RAIZ
 from src.graph.state import CAMPOS_OBLIGATORIOS, Estado
 
 LETRAS = "ABCDEFGH"
@@ -59,9 +60,16 @@ def _leer(ruta: Path) -> list[dict]:
     return lineas
 
 
+def carpeta_auxiliar(ruta_salida) -> Path:
+    """Dónde van trazas y partes: junto a la salida, salvo que esté en la raíz del repositorio
+    (submissions.jsonl), para no llenarla de archivos de trabajo."""
+    carpeta = Path(ruta_salida).resolve().parent
+    return OUTPUTS if carpeta == RAIZ else carpeta
+
+
 def ruta_trazas(ruta_salida) -> Path:
     ruta = Path(ruta_salida)
-    return ruta.with_name(ruta.stem + ".trazas.jsonl")
+    return carpeta_auxiliar(ruta) / (ruta.stem + ".trazas.jsonl")
 
 
 def correr_lote(grafo, items: list[dict], ruta_salida, max_concurrency: int = 4, log=print) -> Path:

@@ -225,7 +225,7 @@ PREGUNTA_LETRA = "Según tu análisis, ¿cuál es la opción correcta? Responde 
 
 def elegir_opcion(sistema: str, usuario: str, letras: List[str],
                   analisis: Optional[str] = None) -> Optional[Dict[str, float]]:
-    """Probabilidad de cada letra según el modelo (endpoint /opciones de scripts/servidor_alia.py):
+    """Probabilidad de cada letra según el modelo (endpoint /opciones de src/servidor_alia.py):
     una sola pasada, sin generar texto, así que siempre es una de las letras. Con `analisis`, el
     modelo primero "dice" su propio razonamiento y luego se le pide la letra. Devuelve None si el
     servidor no tiene el endpoint (Ollama, vLLM): se usa la letra del texto."""

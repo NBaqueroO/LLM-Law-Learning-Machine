@@ -1,13 +1,13 @@
 """CLI principal: corre el grafo sobre un split y escribe el JSONL de la entrega.
 
-    python main.py --split sample                       # 50 preguntas -> outputs/sample_50.jsonl (+ evaluate.py)
-    python main.py --split test --concurrencia 8        # 992 -> outputs/submissions.jsonl
-    python main.py --entrada data/test_992.jsonl --ids 247,253   # verificación en vivo
-    python main.py --split sample --ids 1 --ruta        # por qué nodos pasa la pregunta 1, en orden
-    python main.py --split sample --limite 5            # prueba rápida
-    python main.py --split test --desde 151 --hasta 300 # preguntas 151 a 300 del archivo -> outputs/test_151-300.jsonl
-    python main.py --split test --parte 1/2             # la mitad de las preguntas, para repartir en 2 GPU
-    python main.py --split test --unir                  # junta las partes en outputs/submissions.jsonl
+    python -m src.main --split sample                       # 50 preguntas -> outputs/sample_50.jsonl (+ evaluate.py)
+    python -m src.main --split test --concurrencia 8        # 992 -> submissions.jsonl (raíz)
+    python -m src.main --entrada data/test_992.jsonl --ids 247,253   # verificación en vivo
+    python -m src.main --split sample --ids 1 --ruta        # por qué nodos pasa la pregunta 1, en orden
+    python -m src.main --split sample --limite 5            # prueba rápida
+    python -m src.main --split test --desde 151 --hasta 300 # preguntas 151 a 300 del archivo -> outputs/test_151-300.jsonl
+    python -m src.main --split test --parte 1/2             # la mitad de las preguntas, para repartir en 2 GPU
+    python -m src.main --split test --unir                  # junta las partes en submissions.jsonl
 
 Si se corta, volver a correr el mismo comando sigue donde iba.
 """
@@ -20,11 +20,14 @@ import sys
 import time
 from pathlib import Path
 
-from src.config import DATA, OUTPUTS, SAMPLE, SCRIPTS
+if __package__ in (None, ""):  # python src/main.py: la raíz del repositorio en el path, para "import src"
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.config import DATA, OUTPUTS, SAMPLE, SCRIPTS, SUBMISSIONS
 
 ENTRADAS = {"sample": SAMPLE,
             "test": DATA / "test.jsonl" if (DATA / "test.jsonl").exists() else DATA / "test_992.jsonl"}
-SALIDAS = {"sample": OUTPUTS / "sample_50.jsonl", "test": OUTPUTS / "submissions.jsonl"}
+SALIDAS = {"sample": OUTPUTS / "sample_50.jsonl", "test": SUBMISSIONS}
 
 
 def leer(ruta: Path) -> list[dict]:
@@ -33,8 +36,9 @@ def leer(ruta: Path) -> list[dict]:
 
 def unir(final: Path, items: list[dict]) -> int:
     """Junta <final>.parte*.jsonl en `final`, en el orden de la entrada y sin repetidos."""
+    from src.runner import carpeta_auxiliar
     por_id = {}
-    for parte in sorted(final.parent.glob(f"{final.stem}.parte*.jsonl")):
+    for parte in sorted(carpeta_auxiliar(final).glob(f"{final.stem}.parte*.jsonl")):
         if parte.name.endswith(".trazas.jsonl"):
             continue
         for linea in parte.read_text(encoding="utf-8").splitlines():
@@ -96,7 +100,7 @@ def main(argv=None) -> int:
 
     from src.graph.workflow import construir_grafo
     from src.retrieval.resources import Recursos
-    from src.runner import correr_lote, entrada as estado_inicial, responder
+    from src.runner import carpeta_auxiliar, correr_lote, entrada as estado_inicial, responder
 
     t = time.time()
     recursos = Recursos.cargar(usar_denso=not args.sin_denso)
@@ -126,7 +130,7 @@ def main(argv=None) -> int:
         i, n = (int(x) for x in args.parte.split("/"))
         assert 1 <= i <= n, "--parte va de 1/n a n/n"
         items = items[i - 1::n]
-        salida = salida.with_name(f"{salida.stem}.parte{i}de{n}.jsonl")
+        salida = carpeta_auxiliar(salida) / f"{salida.stem}.parte{i}de{n}.jsonl"
     print(f"{len(items)} preguntas -> {salida}")
     t = time.time()
     correr_lote(grafo, items, salida, max_concurrency=args.concurrencia)

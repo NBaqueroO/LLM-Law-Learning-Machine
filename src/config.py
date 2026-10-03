@@ -4,11 +4,12 @@ from pathlib import Path
 
 # Rutas
 RAIZ = Path(__file__).resolve().parents[1]
-DATA = RAIZ / "data"
+DATA = RAIZ / "data"   # en la raíz: el kit oficial (scripts/common.py) la busca ahí
 SAMPLE = DATA / "sample_50.jsonl"
 PROCESSED = DATA / "processed"
 INDICES = RAIZ / "indices"
 OUTPUTS = RAIZ / "outputs"
+SUBMISSIONS = RAIZ / "submissions.jsonl"   # la entrega: 992 respuestas en la raíz del repositorio
 SCRIPTS = RAIZ / "scripts"
 SCHEMA = RAIZ / "schema" / "submission.schema.json"
 
@@ -19,7 +20,7 @@ UMBRAL_CASO = 3
 
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")  # Ollama; vLLM: :8000/v1
 LLM_MODELO = os.environ.get("LLM_MODELO", "BSC-LT/salamandra-7b-instruct")  # vLLM: BSC-LT/salamandra-7b-instruct
-METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema; "texto" si lo ignora (servidor_alia.py)
+METODO_SALIDA = os.environ.get("METODO_SALIDA", "json_schema")  # "json_mode" si el servidor no acepta json_schema; "texto" si lo ignora (src/servidor_alia.py)
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "800"))  # tope de tokens de salida por llamada
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "400"))   # segundos; incluye la cola: con 4 a la vez una respuesta larga pasa de 120
 MAX_CHARS_PASAJE = int(os.environ.get("MAX_CHARS_PASAJE", "1200"))  # recorte de cada pasaje dentro del prompt
@@ -28,7 +29,7 @@ SMMLV_ANIO = os.environ.get("SMMLV_ANIO", "2026")
 PASAJES_MC = int(os.environ.get("PASAJES_MC", "5"))  # cuántos de los top-10 ve el modelo en las cerradas
 # Cómo se elige la letra de las cerradas: "texto" (leída de lo que escribe el modelo), "probabilidad"
 # (la letra más probable tras el prompt) o "probabilidad_razonada" (tras su propio razonamiento).
-# Las dos últimas usan /opciones de scripts/servidor_alia.py; sin ese endpoint se usa "texto".
+# Las dos últimas usan /opciones de src/servidor_alia.py; sin ese endpoint se usa "texto".
 # sample_50, 15 cerradas: texto 9 y 8, probabilidad 7 y 9, probabilidad_razonada 10 y 9 (con 5 y 6 pasajes).
 ELECCION_MC = os.environ.get("ELECCION_MC", "probabilidad_razonada")
 # Peso de la evidencia por opción (guards/evidencia_mc.py) frente a la probabilidad del modelo. 0 = solo

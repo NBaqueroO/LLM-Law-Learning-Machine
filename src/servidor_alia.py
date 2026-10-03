@@ -6,13 +6,13 @@ y main.py puedan conectarse sin necesidad de software externo.
 
 Uso:
     # Servir Salamandra 7B (el modelo 7B del proyecto ALIA):
-    python scripts/servidor_alia.py --modelo BSC-LT/salamandra-7b-instruct
+    python src/servidor_alia.py --modelo BSC-LT/salamandra-7b-instruct
 
     # Servir ALIA 40B en 4-bit (requiere ~22 GB VRAM):
-    python scripts/servidor_alia.py --modelo BSC-LT/ALIA-40b-instruct-2606 --4bit
+    python src/servidor_alia.py --modelo BSC-LT/ALIA-40b-instruct-2606 --4bit
 
     # Servir desde una carpeta local de pesos:
-    python scripts/servidor_alia.py --modelo ./modelos/alia
+    python src/servidor_alia.py --modelo ./modelos/alia
 """
 
 from __future__ import annotations

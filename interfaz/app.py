@@ -1,14 +1,22 @@
-"""Interfaz web
+"""Interfaz web: una pregunta suelta por el mismo grafo que usa el lote (src/main.py).
+
+    python interfaz/app.py              # http://127.0.0.1:8080
+    python interfaz/app.py --demo       # sin índices ni LLM, respuestas de ejemplo
 """
 from __future__ import annotations
 
 import argparse
 import itertools
 import logging
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Optional
+
+RAIZ = Path(__file__).resolve().parents[1]
+if str(RAIZ) not in sys.path:  # python interfaz/app.py: la raíz del repositorio en el path, para "import src"
+    sys.path.insert(0, str(RAIZ))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -17,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from src.config import LLM_MODELO
 
-ESTATICOS = Path(__file__).resolve().parent / "src" / "ui" / "static"
+ESTATICOS = Path(__file__).resolve().parent / "static"
 log = logging.getLogger("app")
 
 
@@ -42,7 +50,7 @@ class Sistema:
         try:
             t = time.time()
             if demo:
-                from src.ui.servicio import GrafoDemo
+                from interfaz.servicio import GrafoDemo
                 self.grafo = GrafoDemo()
                 self.info = {"modo": "demo", "modelo": "sin modelo (demostración)"}
             else:
@@ -77,7 +85,7 @@ def crear_app(demo: bool = False, sin_denso: bool = False, cargar_en_hilo: bool 
     def consultar(c: Consulta): 
         if sistema.estado != "listo":
             raise HTTPException(503, sistema.detalle or "El sistema todavía está cargando los índices.")
-        from src.ui.servicio import consultar as correr
+        from interfaz.servicio import consultar as correr
         try:
             return correr(sistema.grafo, c.pregunta.strip(), c.formato, c.opciones,
                           id_=next(sistema.ids), area=c.area)

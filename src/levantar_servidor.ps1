@@ -1,21 +1,19 @@
 # levantar_servidor.ps1
-# Version Windows de scripts/levantar_servidor.sh: instala dependencias, valida que todo quedo
-# bien, levanta el servidor del modelo (OpenAI-compatible) en esta terminal y la interfaz web
-# (app.py) en otra ventana ya conectada a el, en una sola funcion.
+# Instala dependencias, valida que todo quedo bien y levanta el servidor del modelo
+# (OpenAI-compatible) en esta terminal, en una sola funcion. La interfaz web va aparte:
+# interfaz\levantar_interfaz.ps1.
 #
-# Uso (un solo comando, desde la raiz del repo):
-#   powershell -ExecutionPolicy Bypass -File scripts\levantar_servidor.ps1
+# Uso (desde la raiz del repo):
+#   powershell -ExecutionPolicy Bypass -File src\levantar_servidor.ps1
 #
 # Variables de entorno (todas opcionales):
 #   LLM_MODELO   por defecto BSC-LT/salamandra-7b-instruct (el de src/config.py)
 #   PUERTO       servidor del modelo, por defecto 8000
-#   UI_PUERTO    interfaz web, por defecto 8080
 #   ALIA_4BIT    "1" para cargar el modelo en 4-bit
 #   SIN_GPU      "1" para no exigir CUDA y correr en CPU
 #   VENV         carpeta del entorno virtual, por defecto .venv
 #
-# vLLM (requirements-gpu.txt) no tiene version para Windows: aqui el servidor es
-# scripts/servidor_alia.py, que usa transformers sobre la GPU.
+# El servidor es src/servidor_alia.py, que sirve el modelo con transformers sobre la GPU.
 
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
@@ -23,7 +21,6 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 function Levantar-Servidor {
     $modelo = if ($env:LLM_MODELO) { $env:LLM_MODELO } else { "BSC-LT/salamandra-7b-instruct" }
     $puerto = if ($env:PUERTO) { $env:PUERTO } else { "8000" }
-    $uiPuerto = if ($env:UI_PUERTO) { $env:UI_PUERTO } else { "8080" }
     $sinGpu = $env:SIN_GPU -eq "1"
 
     function Revisar($paso) { if ($LASTEXITCODE -ne 0) { throw "Fallo: $paso (codigo $LASTEXITCODE)" } }
@@ -48,7 +45,6 @@ function Levantar-Servidor {
         & $py -m pip install -q torch --index-url https://download.pytorch.org/whl/cu126; Revisar "torch CUDA"
     }
     & $py -m pip install -q -r requirements.txt; Revisar "requirements.txt"
-    Write-Host "   requirements-gpu.txt (vllm) se omite: vLLM no existe para Windows" -ForegroundColor Yellow
 
     # winget lo instala en Program Files o, sin permisos de administrador, en la carpeta del usuario
     $tessDirs = @("$env:ProgramFiles\Tesseract-OCR", "$env:LOCALAPPDATA\Programs\Tesseract-OCR")
@@ -117,7 +113,7 @@ print("Todo instalado.")
     if (Responde "http://127.0.0.1:$puerto/v1/models") {
         Write-Host "   ya hay un servidor en el puerto ${puerto}: se usa ese" -ForegroundColor Yellow
     } else {
-        $argumentos = @("scripts\servidor_alia.py", "--modelo", $modelo, "--puerto", $puerto)
+        $argumentos = @("src\servidor_alia.py", "--modelo", $modelo, "--puerto", $puerto)
         if ($env:ALIA_4BIT -eq "1") { $argumentos += "--4bit" }
         if ($sinGpu) { $argumentos += "--cpu" }
         $proc = Start-Process -FilePath $py -ArgumentList $argumentos -NoNewWindow -PassThru
@@ -128,17 +124,8 @@ print("Todo instalado.")
         }
     }
 
-    Write-Host "== 5. interfaz web (app.py, puerto $uiPuerto) en otra ventana" -ForegroundColor Cyan
-    # app.py lee la conexion al modelo de src/config.py al importarse: las variables van antes de arrancar
-    $comandoUi = "`$Host.UI.RawUI.WindowTitle = 'Interfaz LLM Law'; " +
-        "`$env:LLM_BASE_URL = 'http://127.0.0.1:$puerto/v1'; `$env:LLM_MODELO = '$modelo'; " +
-        "`$env:METODO_SALIDA = 'texto'; & '$py' app.py --puerto $uiPuerto"
-    Start-Process powershell -WorkingDirectory (Get-Location).Path `
-        -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $comandoUi
-    while (-not (Responde "http://127.0.0.1:$uiPuerto/api/estado")) { Start-Sleep -Seconds 1 }
-    Start-Process "http://localhost:$uiPuerto"
-    Write-Host "== listo: modelo en http://127.0.0.1:$puerto/v1, interfaz en http://localhost:$uiPuerto" -ForegroundColor Green
-    Write-Host "   (la interfaz tarda en cargar los indices; el indicador de la pagina pasa a 'Listo')"
+    Write-Host "== listo: modelo en http://127.0.0.1:$puerto/v1" -ForegroundColor Green
+    Write-Host "   Interfaz web, en otra terminal: powershell -ExecutionPolicy Bypass -File interfaz\levantar_interfaz.ps1"
 
     if ($proc) {
         try { $proc.WaitForExit() } finally { if (-not $proc.HasExited) { $proc.Kill() } }
